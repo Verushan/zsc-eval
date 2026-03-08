@@ -18,13 +18,13 @@ export POLICY_POOL=${path}
 
 policy_version="hsp"
 
-echo "env is ${env}, layout is ${layout}, eval"
+echo "env is ${env}, layout is ${layout}, evaluation"
 n=$(find ${path}/${layout}/hsp/s1/${policy_version} -name "*_final_w0_actor.pt" | wc -l)
 echo "Evaluate $n agents in ${path}/${layout}/hsp/s1/${policy_version}"
 yml_dir=eval/eval_policy_pool/${layout}/bias
 mkdir -p ${yml_dir}
 
-eval_template="eval_template"
+eval_template="hsp/benchmarks-s20"
 
 for i in $(seq 1 ${n});
 do

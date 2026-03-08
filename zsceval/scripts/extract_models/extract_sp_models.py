@@ -6,7 +6,7 @@ import numpy as np
 import wandb
 from loguru import logger
 
-wandb_name = "your wandb name"
+wandb_name = os.getenv("WANDB_ENTITY")
 POLICY_POOL_PATH = "../policy_pool"
 
 
@@ -43,11 +43,15 @@ def extract_sp_S1_models(layout, exp, env):
             if run.config["seed"] in seeds:
                 continue
             i = run.config["seed"]
-            logger.info(f"sp{i} Run: {run_id} Seed: {run.config['seed']} Return {final_ep_sparse_r}")
+            logger.info(
+                f"sp{i} Run: {run_id} Seed: {run.config['seed']} Return {final_ep_sparse_r}"
+            )
             seeds.add(run.config["seed"])
             files = run.files()
             actor_pts = [f for f in files if f.name.startswith("actor_periodic")]
-            actor_versions = [eval(f.name.split("_")[-1].split(".pt")[0]) for f in actor_pts]
+            actor_versions = [
+                eval(f.name.split("_")[-1].split(".pt")[0]) for f in actor_pts
+            ]
             actor_pts = {v: p for v, p in zip(actor_versions, actor_pts)}
             actor_versions = sorted(actor_versions)
             max_actor_versions = max(actor_versions) + 1
@@ -73,14 +77,19 @@ def extract_sp_S1_models(layout, exp, env):
                     min_delta = abs(mid_ep_sparse_r - score)
                     selected_pts["mid"] = s
 
-            selected_pts = {k: int(v / max_steps * max_actor_versions) for k, v in selected_pts.items()}
+            selected_pts = {
+                k: int(v / max_steps * max_actor_versions)
+                for k, v in selected_pts.items()
+            }
             sparse_r_dict = dict(init=0, mid=mid_ep_sparse_r, final=final_ep_sparse_r)
             for tag, exp_version in selected_pts.items():
                 version = actor_versions[0]
                 for actor_version in actor_versions:
                     if abs(exp_version - version) > abs(exp_version - actor_version):
                         version = actor_version
-                logger.info(f"sp{i}: {tag} Expected: {exp_version} {sparse_r_dict[tag]} Found: {version}")
+                logger.info(
+                    f"sp{i}: {tag} Expected: {exp_version} {sparse_r_dict[tag]} Found: {version}"
+                )
                 ckpt = actor_pts[version]
                 tmp_dir = f"tmp/{layout}/{exp}"
                 ckpt.download(tmp_dir, replace=True)

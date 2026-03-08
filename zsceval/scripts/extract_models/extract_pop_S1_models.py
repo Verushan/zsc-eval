@@ -6,7 +6,7 @@ import numpy as np
 import wandb
 from loguru import logger
 
-wandb_name = "your wandb name"
+wandb_name = os.getenv("WANDB_ENTITY")
 POLICY_POOL_PATH = "../policy_pool"
 
 
@@ -47,8 +47,14 @@ def extract_pop_S1_models(layout, algo, exp, env):
                 ep_sparse_r = history[f"{ep_name}-ep_sparse_r"].to_numpy()
                 final_ep_sparse_r = np.mean(ep_sparse_r[-5:])
                 logger.info(f"{policy_name} Run: {run_id} Return: {final_ep_sparse_r}")
-                actor_pts = [f for f in files if f.name.startswith(f"{policy_name}/actor_periodic")]
-                actor_versions = [eval(f.name.split("_")[-1].split(".pt")[0]) for f in actor_pts]
+                actor_pts = [
+                    f
+                    for f in files
+                    if f.name.startswith(f"{policy_name}/actor_periodic")
+                ]
+                actor_versions = [
+                    eval(f.name.split("_")[-1].split(".pt")[0]) for f in actor_pts
+                ]
                 actor_pts = {v: p for v, p in zip(actor_versions, actor_pts)}
                 actor_versions = sorted(actor_versions)
                 max_actor_versions = max(actor_versions) + 1
@@ -62,7 +68,9 @@ def extract_pop_S1_models(layout, algo, exp, env):
                     l_er = new_ep_sparse_r[-1]
                     for w in range(l_s + 1, s, 100):
                         new_steps.append(w)
-                        new_ep_sparse_r.append(l_er + (er - l_er) * (w - l_s) / (s - l_s))
+                        new_ep_sparse_r.append(
+                            l_er + (er - l_er) * (w - l_s) / (s - l_s)
+                        )
                 steps = new_steps
                 ep_sparse_r = new_ep_sparse_r
 
@@ -75,13 +83,20 @@ def extract_pop_S1_models(layout, algo, exp, env):
                         min_delta = abs(mid_ep_sparse_r - score)
                         selected_pts["mid"] = s
 
-                selected_pts = {k: int(v / max_steps * max_actor_versions) for k, v in selected_pts.items()}
+                selected_pts = {
+                    k: int(v / max_steps * max_actor_versions)
+                    for k, v in selected_pts.items()
+                }
                 for tag, exp_version in selected_pts.items():
                     version = actor_versions[0]
                     for actor_version in actor_versions:
-                        if abs(exp_version - version) > abs(exp_version - actor_version):
+                        if abs(exp_version - version) > abs(
+                            exp_version - actor_version
+                        ):
                             version = actor_version
-                    logger.info(f"{policy_name} {tag} Expected: {exp_version} Found {version}")
+                    logger.info(
+                        f"{policy_name} {tag} Expected: {exp_version} Found {version}"
+                    )
                     ckpt = actor_pts[version]
                     tmp_dir = f"tmp/{layout}/{exp}"
                     ckpt.download(tmp_dir, replace=True)
@@ -89,7 +104,9 @@ def extract_pop_S1_models(layout, algo, exp, env):
                     pop_s1_path = f"{pop_s1_dir}/{exp}/{policy_name}_{tag}_actor.pt"
                     os.makedirs(f"{pop_s1_dir}/{exp}", exist_ok=True)
                     logger.success(f"pt store in {pop_s1_path}")
-                    os.system(f"mv {tmp_dir}/{policy_name}/actor_periodic_{version}.pt {pop_s1_path}")
+                    os.system(
+                        f"mv {tmp_dir}/{policy_name}/actor_periodic_{version}.pt {pop_s1_path}"
+                    )
 
 
 if __name__ == "__main__":

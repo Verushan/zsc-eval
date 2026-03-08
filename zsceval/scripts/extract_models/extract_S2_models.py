@@ -5,7 +5,7 @@ import socket
 import numpy as np
 import wandb
 
-wandb_name = "your wandb name"
+wandb_name = os.getenv("WANDB_ENTITY")
 POLICY_POOL_PATH = "../policy_pool"
 
 from loguru import logger
@@ -78,11 +78,17 @@ def extract_pop_S2_models(layout, algo, exp, env, percentile=0.8):
             history = history[["_step", f"either-{algo}_adaptive-ep_sparse_r"]]
             steps = history["_step"].to_numpy().astype(int)
             ep_sparse_r = history[f"either-{algo}_adaptive-ep_sparse_r"].to_numpy()
-            i_max_ep_sparse_r, max_ep_sparse_r = find_target_index(ep_sparse_r, percentile)
+            i_max_ep_sparse_r, max_ep_sparse_r = find_target_index(
+                ep_sparse_r, percentile
+            )
             max_ep_sparse_r_step = steps[i_max_ep_sparse_r]
             files = run.files()
-            actor_pts = [f for f in files if f.name.startswith(f"{policy_name}/actor_periodic")]
-            actor_versions = [int(f.name.split("_")[-1].split(".pt")[0]) for f in actor_pts]
+            actor_pts = [
+                f for f in files if f.name.startswith(f"{policy_name}/actor_periodic")
+            ]
+            actor_versions = [
+                int(f.name.split("_")[-1].split(".pt")[0]) for f in actor_pts
+            ]
             actor_versions.sort()
             version = find_nearest(actor_versions, max_ep_sparse_r_step)
             logger.info(
@@ -94,7 +100,9 @@ def extract_pop_S2_models(layout, algo, exp, env, percentile=0.8):
             ckpt.download(f"{tmp_dir}", replace=True)
             algo_s2_dir = f"{POLICY_POOL_PATH}/{layout}/{algo}/s2"
             os.makedirs(f"{algo_s2_dir}/{exp}", exist_ok=True)
-            os.system(f"mv {tmp_dir}/{policy_name}/actor_periodic_{version}.pt {algo_s2_dir}/{exp}/{seed}.pt")
+            os.system(
+                f"mv {tmp_dir}/{policy_name}/actor_periodic_{version}.pt {algo_s2_dir}/{exp}/{seed}.pt"
+            )
             logger.success(f"{layout} {algo} {exp} {seed}")
 
 
@@ -102,7 +110,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser("Extract S2 models")
     parser.add_argument("--layout", type=str, help="layout name")
     parser.add_argument("--env", type=str, help="env name")
-    parser.add_argument("-a", "--algo", "--algorithm", type=str, action="append", required=True)
+    parser.add_argument(
+        "-a", "--algo", "--algorithm", type=str, action="append", required=True
+    )
     parser.add_argument("-p", type=float, help="percentile", default=0.8)
 
     args = parser.parse_args()

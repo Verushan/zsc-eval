@@ -92,7 +92,7 @@ if __name__ == "__main__":
     algos = args.algorithm
     logger.remove()
     logger.add(sys.stdout, level="INFO")
-    # logger.add(sys.stdout, level="DEBUG")
+    logger.add(sys.stdout, level="DEBUG")
     logger.info(args)
     num_agents = LAYOUTS_NS[layout]
 
@@ -100,7 +100,7 @@ if __name__ == "__main__":
     yml_dict = yaml.load(open(bias_yml_path, encoding="utf-8"), Loader=yaml.FullLoader)
     bias_agent_names = yml_dict.keys()
     bias_agent_names = [name for name in bias_agent_names if name != "agent_name"]
-    logger.debug(f"bias agents\n{bias_agent_names}")
+    # logger.debug(f"bias agents\n{bias_agent_names}")
     bias_result_dir = BIAS_RESULT_DIR.format(layout=layout)
     bias_agent_comb_results = {}
     # {comb: result}
@@ -135,7 +135,7 @@ if __name__ == "__main__":
             raise ValueError(f"Unknown bias agent name {a_n}")
 
     mid_result_file_paths = glob.glob(f"{bias_result_dir}/eval-br_*.json")
-    logger.debug(mid_result_file_paths)
+    # logger.debug(mid_result_file_paths)
     mid_results = {}
     actual_agent_name = "br_agent"
     pattern = r"^(?!either).+eval_ep_sparse_r$"
@@ -156,7 +156,7 @@ if __name__ == "__main__":
             for comb in combs:
                 bias_agent_comb_results[tuple(comb)] = mid_results[tuple(comb)]
 
-    logger.debug(pformat(bias_agent_comb_results))
+    # logger.debug(pformat(bias_agent_comb_results))
 
     logger.info(f"Layout: {layout}")
 
@@ -166,6 +166,7 @@ if __name__ == "__main__":
         for exp_name in ALG_EXPS[alg]:
             eval_result_dir = EVAL_RESULT_DIR.format(layout=layout, algo=alg)
             pos_results = [[] for _ in range(num_agents)]
+
             for seed in range(1, 6):
                 actual_agent_name = f"{exp_name}-{seed}"
                 eval_result = json.load(open(f"{eval_result_dir}/eval-{actual_agent_name}.json", encoding="utf-8"))
@@ -184,6 +185,7 @@ if __name__ == "__main__":
                                 )
                             else:
                                 pos_results[pos].append(1)
+
             overall_score = scipy_iqm(sum(pos_results, []))
             alg_result[exp_name] = [scipy_iqm(r) for r in pos_results]
             alg_result[exp_name].append(overall_score)

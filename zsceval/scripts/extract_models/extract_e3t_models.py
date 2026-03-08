@@ -4,7 +4,7 @@ import sys
 import numpy as np
 import wandb
 
-wandb_name = "your wandb name"
+wandb_name = os.getenv("WANDB_ENTITY")
 POLICY_POOL_PATH = "../policy_pool"
 
 import socket
@@ -83,11 +83,15 @@ def extract_sp_S1_models(layout, exp, env):
             final_ep_sparse_r = np.mean(ep_sparse_r[-5:])
             i_max_ep_sparse_r, _ = find_target_index(ep_sparse_r, 0.9)
             max_ep_sparse_r_step = steps[i_max_ep_sparse_r]
-            logger.info(f"e3t{i} Run: {run_id} Seed: {run.config['seed']} Return {final_ep_sparse_r}")
+            logger.info(
+                f"e3t{i} Run: {run_id} Seed: {run.config['seed']} Return {final_ep_sparse_r}"
+            )
             seeds.add(run.config["seed"])
             files = run.files()
             actor_pts = [f for f in files if f.name.startswith("actor")]
-            actor_versions = [eval(f.name.split("_")[-1].split(".pt")[0]) for f in actor_pts]
+            actor_versions = [
+                eval(f.name.split("_")[-1].split(".pt")[0]) for f in actor_pts
+            ]
             actor_pts = {v: p for v, p in zip(actor_versions, actor_pts)}
             actor_versions = sorted(actor_versions)
             max_actor_versions = max(actor_versions) + 1
@@ -107,14 +111,19 @@ def extract_sp_S1_models(layout, exp, env):
             # select checkpoints
             selected_pts = dict(final=max_ep_sparse_r_step)
 
-            selected_pts = {k: int(v / max_steps * max_actor_versions) for k, v in selected_pts.items()}
+            selected_pts = {
+                k: int(v / max_steps * max_actor_versions)
+                for k, v in selected_pts.items()
+            }
             sparse_r_dict = dict(final=final_ep_sparse_r)
             for tag, exp_version in selected_pts.items():
                 version = actor_versions[0]
                 for actor_version in actor_versions:
                     if abs(exp_version - version) > abs(exp_version - actor_version):
                         version = actor_version
-                logger.info(f"e3t{i}: {tag} Expected: {exp_version} {sparse_r_dict[tag]} Found: {version}")
+                logger.info(
+                    f"e3t{i}: {tag} Expected: {exp_version} {sparse_r_dict[tag]} Found: {version}"
+                )
                 w0_actor_pt = run.file(f"actor_agent0_periodic_{version}.pt")
 
                 tmp_dir = f"tmp/{layout}/{exp}"

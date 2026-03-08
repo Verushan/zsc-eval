@@ -1,10 +1,8 @@
 import argparse
 import getpass
 
-
 def scientific_notation(value):
     return int(float(value))
-
 
 def get_config() -> argparse.ArgumentParser:
     """

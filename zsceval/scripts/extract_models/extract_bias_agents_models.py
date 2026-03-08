@@ -6,9 +6,8 @@ import numpy as np
 import wandb
 from loguru import logger
 
-wandb_name = "your wandb name"
+wandb_name = os.getenv("WANDB_ENTITY")
 POLICY_POOL_PATH = "../policy_pool"
-
 
 def extract_sp_S1_models(layout, exp, env="Overcooked"):
     api = wandb.Api()
@@ -46,11 +45,15 @@ def extract_sp_S1_models(layout, exp, env="Overcooked"):
             steps = history["_step"].to_numpy().astype(int)
             ep_sparse_r = history["ep_sparse_r"].to_numpy()
             final_ep_sparse_r = np.mean(ep_sparse_r[-5:])
-            logger.info(f"hsp{i} Run: {run_id} Seed: {run.config['seed']} Return {final_ep_sparse_r}")
+            logger.info(
+                f"hsp{i} Run: {run_id} Seed: {run.config['seed']} Return {final_ep_sparse_r}"
+            )
             seeds.add(run.config["seed"])
             files = run.files()
             actor_pts = [f for f in files if f.name.startswith("actor")]
-            actor_versions = [eval(f.name.split("_")[-1].split(".pt")[0]) for f in actor_pts]
+            actor_versions = [
+                eval(f.name.split("_")[-1].split(".pt")[0]) for f in actor_pts
+            ]
             actor_pts = {v: p for v, p in zip(actor_versions, actor_pts)}
             actor_versions = sorted(actor_versions)
             max_actor_versions = max(actor_versions) + 1
@@ -76,35 +79,51 @@ def extract_sp_S1_models(layout, exp, env="Overcooked"):
                     min_delta = abs(mid_ep_sparse_r - score)
                     selected_pts["mid"] = s
 
-            selected_pts = {k: int(v / max_steps * max_actor_versions) for k, v in selected_pts.items()}
+            selected_pts = {
+                k: int(v / max_steps * max_actor_versions)
+                for k, v in selected_pts.items()
+            }
             sparse_r_dict = dict(init=0, mid=mid_ep_sparse_r, final=final_ep_sparse_r)
             for tag, exp_version in selected_pts.items():
                 version = actor_versions[0]
                 for actor_version in actor_versions:
                     if abs(exp_version - version) > abs(exp_version - actor_version):
                         version = actor_version
-                logger.info(f"hsp{i}: {tag} Expected: {exp_version} {sparse_r_dict[tag]} Found: {version}")
+                logger.info(
+                    f"hsp{i}: {tag} Expected: {exp_version} {sparse_r_dict[tag]} Found: {version}"
+                )
                 actor_pts = []
                 for a_i in range(run.config["num_agents"]):
-                    actor_pts.append(run.file(f"actor_agent{a_i}_periodic_{version}.pt"))
+                    actor_pts.append(
+                        run.file(f"actor_agent{a_i}_periodic_{version}.pt")
+                    )
 
                 tmp_dir = f"tmp/{layout}/{exp}"
                 for pt in actor_pts:
                     pt.download(tmp_dir, replace=True)
 
-                hsp_s1_dir = f"{POLICY_POOL_PATH}/{layout}/hsp/s1/{exp.replace('-S1', '')}"
+                hsp_s1_dir = (
+                    f"{POLICY_POOL_PATH}/{layout}/hsp/s1/{exp.replace('-S1', '')}"
+                )
                 os.makedirs(hsp_s1_dir, exist_ok=True)
                 for a_i in range(run.config["num_agents"]):
                     pt_path = f"{hsp_s1_dir}/hsp{i}_{tag}_w{a_i}_actor.pt"
                     logger.info(f"pt {a_i} store in {pt_path}")
-                    os.system(f"mv {tmp_dir}/actor_agent{a_i}_periodic_{version}.pt {pt_path}")
+                    os.system(
+                        f"mv {tmp_dir}/actor_agent{a_i}_periodic_{version}.pt {pt_path}"
+                    )
 
     logger.success(f"Extracted {len(seeds)} models for {layout}")
 
 
 if __name__ == "__main__":
     layout = sys.argv[1]
-    env = sys.argv[2]
+
+    env = "overcooked"
+
+    if len(sys.argv) == 3:
+        env = sys.argv[2]
+
     assert layout in [
         "random0",
         "random0_medium",
@@ -138,6 +157,16 @@ if __name__ == "__main__":
     exp_names = {
         "random3_m": "hsp-S1",
         "small_corridor": "hsp-S1",
+        "random0": "hsp-s1",
+        "random0_medium": "hsp-s1",
+        "random1": "hsp-s1",
+        "random3": "hsp-s1",
+        "small_corridor": "hsp-s1",
+        "unident_s": "hsp-s1",
+        "random0_m": "hsp-s1",
+        "random1_m": "hsp-s1",
+        "random3_m": "hsp-s1",
+        "academy_3_vs_1_with_keeper": "hsp-s1",
     }
 
     # logger.add(f"./extract_log/extract_{layout}_hsp_S1_models.log")
