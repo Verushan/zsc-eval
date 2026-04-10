@@ -15,8 +15,8 @@ if [[ "${layout}" == "small_corridor" ]]; then
     entropy_coef_horizons="0 8e6 1e7"
 fi
 
-reward_shaping_horizon="1e8"
-num_env_steps="1e7"
+reward_shaping_horizon="1e6"
+num_env_steps="1e6"
 
 num_agents=2
 algo="mappo"

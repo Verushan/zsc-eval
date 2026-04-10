@@ -132,9 +132,7 @@ if __name__ == "__main__":
     else:
         layout = [layout]
     hostname = socket.gethostname()
-    exp_names = {
-        "random3_m": "sp",
-    }
+    exp_names = {"random0": "sp", "random3_m": "sp"}
 
     logger.info(f"hostname: {hostname}")
     for l in layout:
