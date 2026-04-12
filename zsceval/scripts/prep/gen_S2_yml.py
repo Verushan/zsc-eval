@@ -110,6 +110,10 @@ if __name__ == "__main__":
                         f"{pop_alg}{pt_i}_final_actor.pt",
                     ]
                     for actor_name in actor_names:
+                        if actor_name not in pt_lst:
+                            logger.error(f"MISSING FILE: {actor_name} in {source_dir}")
+                            logger.debug(f"Available files: {pt_lst}")
+
                         assert actor_name in pt_lst, (actor_name, pt_lst)
                     yml.write(
                         f"""\

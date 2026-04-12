@@ -61,6 +61,10 @@ def extract_sp_S1_models(layout, exp, env):
         files = run.files()
 
         actor_pts = [f for f in files if f.name.startswith("actor_periodic")]
+
+        if not actor_pts:
+            continue
+
         actor_versions = [
             eval(f.name.split("_")[-1].split(".pt")[0]) for f in actor_pts
         ]
