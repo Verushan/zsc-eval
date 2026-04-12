@@ -7,7 +7,7 @@ import wandb
 from loguru import logger
 
 wandb_name = os.getenv("WANDB_ENTITY")
-POLICY_POOL_PATH = "../policy_pool"
+POLICY_POOL_PATH = os.getenv("POLICY_PATH")
 
 
 def extract_sp_S1_models(layout, exp, env):
