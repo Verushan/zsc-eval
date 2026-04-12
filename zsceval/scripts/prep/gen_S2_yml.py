@@ -4,7 +4,7 @@ import os.path as osp
 
 from loguru import logger
 
-policy_pool_dir = "../policy_pool"
+policy_pool_dir = os.getenv("POLICY_POOL")
 
 S1_POP_EXPS = {
     "fcp": {

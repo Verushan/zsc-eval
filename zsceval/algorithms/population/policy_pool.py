@@ -10,7 +10,7 @@ import yaml
 from zsceval.algorithms.population.utils import EvalPolicy
 from zsceval.runner.shared.base_runner import make_trainer_policy_cls
 
-POLICY_POOL_PATH = os.environ["POLICY_POOL"]
+POLICY_POOL_PATH = os.environ.get("POLICY_POOL")
 ACTOR_POOL_PATH = os.environ.get("EVOLVE_ACTOR_POOL")
 
 
