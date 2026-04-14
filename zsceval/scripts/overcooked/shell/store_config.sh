@@ -11,13 +11,13 @@ fi
 entropy_coefs="0.2 0.05 0.001"
 entropy_coef_horizons="0 6e6 1e7"
 
-reward_shaping_horizon="1e8"
+reward_shaping_horizon="1e3"
 
-num_env_steps="1e7"
+num_env_steps="1e4"
 
 num_agents=2
 seed_begin=1
-seed_max=1
+seed_max=10
 
 algo="mappo"
 exp="store_config_mlp"

@@ -28,9 +28,13 @@ def make_eval_env(all_args):
     def get_env_fn(rank):
         def init_env():
             if all_args.env_name == "GRF":
-                env = FootballEnv(all_args, seed=all_args.seed * 50000 + rank * 10000, evaluation=True)
+                env = FootballEnv(
+                    all_args, seed=all_args.seed * 50000 + rank * 10000, evaluation=True
+                )
             else:
-                raise NotImplementedError("Can not support the " + all_args.env_name + "environment.")
+                raise NotImplementedError(
+                    "Can not support the " + all_args.env_name + "environment."
+                )
             return env
 
         return init_env
@@ -38,7 +42,9 @@ def make_eval_env(all_args):
     if all_args.n_eval_rollout_threads == 1:
         return ShareDummyVecEnv([get_env_fn(0)])
     else:
-        return ShareSubprocVecEnv([get_env_fn(i) for i in range(all_args.n_eval_rollout_threads)])
+        return ShareSubprocVecEnv(
+            [get_env_fn(i) for i in range(all_args.n_eval_rollout_threads)]
+        )
 
 
 def make_train_env(all_args):
@@ -74,10 +80,13 @@ def main(args):
     all_args = parse_args(args, parser)
 
     if all_args.algorithm_name == "rmappo":
-        assert all_args.use_recurrent_policy or all_args.use_naive_recurrent_policy, "check recurrent policy!"
+        assert (
+            all_args.use_recurrent_policy or all_args.use_naive_recurrent_policy
+        ), "check recurrent policy!"
     elif all_args.algorithm_name == "mappo":
         assert (
-            all_args.use_recurrent_policy == False and all_args.use_naive_recurrent_policy == False
+            all_args.use_recurrent_policy == False
+            and all_args.use_naive_recurrent_policy == False
         ), "check recurrent policy!"
     else:
         raise NotImplementedError
@@ -112,14 +121,18 @@ def main(args):
                 bias_index.append(s_i)
         bias_index = np.array(bias_index)
         w0_candidates = list(map(list, product(*w0)))
-        w0_candidates = [cand for cand in w0_candidates if sum(np.array(cand)[bias_index] != 0) <= 3]
+        w0_candidates = [
+            cand for cand in w0_candidates if sum(np.array(cand)[bias_index] != 0) <= 3
+        ]
         logger.info(f"bias index {bias_index}")
         logger.info(f"num w0_candidates {len(w0_candidates)}")
         candidates_str = ""
         for c_i in range(len(w0_candidates)):
             candidates_str += f"{c_i+1}: {w0_candidates[c_i]}\n"
         logger.info(f"w0_candidates:\n{candidates_str}")
-        w0 = w0_candidates[(all_args.seed + all_args.w0_offset - 1) % len(w0_candidates)]
+        w0 = w0_candidates[
+            (all_args.seed + all_args.w0_offset - 1) % len(w0_candidates)
+        ]
         # all_args.w0 = ""
         # for s in w0:
         #     all_args.w0 += str(s) + ","
@@ -131,21 +144,25 @@ def main(args):
 
     # cuda
     if all_args.cuda and torch.cuda.is_available():
-        print("choose to use gpu...")
+        logger.info("Using GPU")
         device = torch.device("cuda:0")
         torch.set_num_threads(all_args.n_training_threads)
         if all_args.cuda_deterministic:
             torch.backends.cudnn.benchmark = False
             torch.backends.cudnn.deterministic = True
     else:
-        print("choose to use cpu...")
+        logger.info("Using CPU")
         device = torch.device("cpu")
         torch.set_num_threads(all_args.n_training_threads)
 
     # run dir
     base_run_dir = Path(get_base_run_dir())
     run_dir = (
-        base_run_dir / all_args.env_name / all_args.scenario_name / all_args.algorithm_name / all_args.experiment_name
+        base_run_dir
+        / all_args.env_name
+        / all_args.scenario_name
+        / all_args.algorithm_name
+        / all_args.experiment_name
     )
     if not run_dir.exists():
         os.makedirs(str(run_dir))
@@ -159,7 +176,11 @@ def main(args):
             project=project_name,
             entity=all_args.wandb_name,
             notes=socket.gethostname(),
-            name=str(all_args.algorithm_name) + "_" + str(all_args.experiment_name) + "_seed" + str(all_args.seed),
+            name=str(all_args.algorithm_name)
+            + "_"
+            + str(all_args.experiment_name)
+            + "_seed"
+            + str(all_args.seed),
             group=all_args.scenario_name,
             dir=str(run_dir),
             job_type="training",

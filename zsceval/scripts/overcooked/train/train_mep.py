@@ -93,8 +93,12 @@ def parse_args(args, parser):
     )
 
     parser.add_argument("--shaped_info_coef", default=0.5, type=float)
-    parser.add_argument("--policy_group_normalization", default=False, action="store_true")
-    parser.add_argument("--use_advantage_prioritized_sampling", default=False, action="store_true")
+    parser.add_argument(
+        "--policy_group_normalization", default=False, action="store_true"
+    )
+    parser.add_argument(
+        "--use_advantage_prioritized_sampling", default=False, action="store_true"
+    )
     parser.add_argument("--uniform_preference", default=False, action="store_true")
     parser.add_argument("--uniform_sampling_repeat", default=0, type=int)
     parser.add_argument("--use_task_v_out", default=False, action="store_true")
@@ -189,21 +193,25 @@ def main(args):
     if all_args.cuda and torch.cuda.is_available():
         n_gpu = torch.cuda.device_count()
         assert n_gpu == 1 or all_args.data_parallel
-        print("choose to use gpu...")
+        logger.info("Using GPU")
         device = torch.device("cuda:0")
         torch.set_num_threads(all_args.n_training_threads)
         if all_args.cuda_deterministic:
             torch.backends.cudnn.benchmark = False
             torch.backends.cudnn.deterministic = True
     else:
-        print("choose to use cpu...")
+        logger.info("Using CPU")
         device = torch.device("cpu")
         torch.set_num_threads(all_args.n_training_threads)
 
     # run dir
     base_run_dir = Path(get_base_run_dir())
     run_dir = (
-        base_run_dir / all_args.env_name / all_args.layout_name / all_args.algorithm_name / all_args.experiment_name
+        base_run_dir
+        / all_args.env_name
+        / all_args.layout_name
+        / all_args.algorithm_name
+        / all_args.experiment_name
     )
     if not run_dir.exists():
         os.makedirs(str(run_dir))
@@ -219,7 +227,11 @@ def main(args):
             project=project_name,
             entity=all_args.wandb_name,
             notes=socket.gethostname(),
-            name=str(all_args.algorithm_name) + "_" + str(all_args.experiment_name) + "_seed" + str(all_args.seed),
+            name=str(all_args.algorithm_name)
+            + "_"
+            + str(all_args.experiment_name)
+            + "_seed"
+            + str(all_args.seed),
             group=all_args.layout_name,
             dir=str(run_dir),
             job_type="training",

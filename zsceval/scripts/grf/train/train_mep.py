@@ -24,9 +24,13 @@ def make_eval_env(all_args):
     def get_env_fn(rank):
         def init_env():
             if all_args.env_name == "GRF":
-                env = FootballEnv(all_args, seed=all_args.seed * 50000 + rank * 10000, evaluation=True)
+                env = FootballEnv(
+                    all_args, seed=all_args.seed * 50000 + rank * 10000, evaluation=True
+                )
             else:
-                raise NotImplementedError("Can not support the " + all_args.env_name + "environment.")
+                raise NotImplementedError(
+                    "Can not support the " + all_args.env_name + "environment."
+                )
             return env
 
         return init_env
@@ -66,7 +70,9 @@ def make_train_env(all_args):
 def parse_args(args, parser):
     parser = get_grf_args(parser)
 
-    parser.add_argument("--use_advantage_prioritized_sampling", default=False, action="store_true")
+    parser.add_argument(
+        "--use_advantage_prioritized_sampling", default=False, action="store_true"
+    )
     parser.add_argument("--uniform_sampling_repeat", default=0, type=int)
     parser.add_argument("--use_task_v_out", default=False, action="store_true")
     # population
@@ -152,21 +158,25 @@ def main(args):
 
     # cuda
     if all_args.cuda and torch.cuda.is_available():
-        print("choose to use gpu...")
+        logger.info("Using GPU")
         device = torch.device("cuda:0")
         torch.set_num_threads(all_args.n_training_threads)
         if all_args.cuda_deterministic:
             torch.backends.cudnn.benchmark = False
             torch.backends.cudnn.deterministic = True
     else:
-        print("choose to use cpu...")
+        logger.info("Using CPU")
         device = torch.device("cpu")
         torch.set_num_threads(all_args.n_training_threads)
 
     # run dir
     base_run_dir = Path(get_base_run_dir())
     run_dir = (
-        base_run_dir / all_args.env_name / all_args.scenario_name / all_args.algorithm_name / all_args.experiment_name
+        base_run_dir
+        / all_args.env_name
+        / all_args.scenario_name
+        / all_args.algorithm_name
+        / all_args.experiment_name
     )
     if not run_dir.exists():
         os.makedirs(str(run_dir))
@@ -179,7 +189,11 @@ def main(args):
             project=project_name,
             entity=all_args.wandb_name,
             notes=socket.gethostname(),
-            name=str(all_args.algorithm_name) + "_" + str(all_args.experiment_name) + "_seed" + str(all_args.seed),
+            name=str(all_args.algorithm_name)
+            + "_"
+            + str(all_args.experiment_name)
+            + "_seed"
+            + str(all_args.seed),
             group=all_args.scenario_name,
             dir=str(run_dir),
             job_type="training",

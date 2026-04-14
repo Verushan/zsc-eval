@@ -39,7 +39,9 @@ class OvercookedRunner(Runner):
         self.warmup()
 
         start = time.time()
-        episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
+        episodes = (
+            int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
+        )
         total_num_steps = 0
 
         for episode in range(episodes):
@@ -68,7 +70,9 @@ class OvercookedRunner(Runner):
                 ) = self.envs.step(actions)
                 obs = np.stack(obs)
                 total_num_steps += self.n_rollout_threads
-                self.envs.anneal_reward_shaping_factor([total_num_steps] * self.n_rollout_threads)
+                self.envs.anneal_reward_shaping_factor(
+                    [total_num_steps] * self.n_rollout_threads
+                )
                 data = (
                     obs,
                     share_obs,
@@ -97,7 +101,9 @@ class OvercookedRunner(Runner):
 
             # post process
             s_time = time.time()
-            total_num_steps = (episode + 1) * self.episode_length * self.n_rollout_threads
+            total_num_steps = (
+                (episode + 1) * self.episode_length * self.n_rollout_threads
+            )
 
             # save model
             if episode < 50:
@@ -147,8 +153,14 @@ class OvercookedRunner(Runner):
                     )
                 )
                 # shaped reward
-                train_infos["average_episode_rewards"] = np.mean(self.buffer.rewards) * self.episode_length
-                logger.info("average episode rewards is {:.3f}".format(train_infos["average_episode_rewards"]))
+                train_infos["average_episode_rewards"] = (
+                    np.mean(self.buffer.rewards) * self.episode_length
+                )
+                logger.info(
+                    "average episode rewards is {:.3f}".format(
+                        train_infos["average_episode_rewards"]
+                    )
+                )
 
                 env_infos = defaultdict(list)
                 if self.env_name == "Overcooked":
@@ -166,19 +178,31 @@ class OvercookedRunner(Runner):
                         shaped_info_keys = SHAPED_INFOS
                     for info in infos:
                         for a in range(self.num_agents):
-                            env_infos[f"ep_sparse_r_by_agent{a}"].append(info["episode"]["ep_sparse_r_by_agent"][a])
-                            env_infos[f"ep_shaped_r_by_agent{a}"].append(info["episode"]["ep_shaped_r_by_agent"][a])
+                            env_infos[f"ep_sparse_r_by_agent{a}"].append(
+                                info["episode"]["ep_sparse_r_by_agent"][a]
+                            )
+                            env_infos[f"ep_shaped_r_by_agent{a}"].append(
+                                info["episode"]["ep_shaped_r_by_agent"][a]
+                            )
                             for i, k in enumerate(shaped_info_keys):
-                                env_infos[f"ep_{k}_by_agent{a}"].append(info["episode"]["ep_category_r_by_agent"][a][i])
+                                env_infos[f"ep_{k}_by_agent{a}"].append(
+                                    info["episode"]["ep_category_r_by_agent"][a][i]
+                                )
                         env_infos["ep_sparse_r"].append(info["episode"]["ep_sparse_r"])
                         env_infos["ep_shaped_r"].append(info["episode"]["ep_shaped_r"])
                 self.log_train(train_infos, total_num_steps)
                 self.log_env(env_infos, total_num_steps)
                 if self.use_wandb:
                     wandb.log({"train/ETA": eta_t}, step=total_num_steps)
-                logger.info(f'average sparse rewards is {np.mean(env_infos["ep_sparse_r"]):.3f}')
+                logger.info(
+                    f'average sparse rewards is {np.mean(env_infos["ep_sparse_r"]):.3f}'
+                )
             # eval
-            if episode % self.eval_interval == 0 and self.use_eval or episode == episodes - 1:
+            if (
+                episode % self.eval_interval == 0
+                and self.use_eval
+                or episode == episodes - 1
+            ):
                 self.eval(total_num_steps)
             e_time = time.time()
             logger.trace(f"Post update models time: {e_time - s_time:.3f}s")
@@ -218,9 +242,13 @@ class OvercookedRunner(Runner):
         # [self.envs, agents, dim]
         values = np.array(np.split(_t2n(value), self.n_rollout_threads))
         actions = np.array(np.split(_t2n(action), self.n_rollout_threads))
-        action_log_probs = np.array(np.split(_t2n(action_log_prob), self.n_rollout_threads))
+        action_log_probs = np.array(
+            np.split(_t2n(action_log_prob), self.n_rollout_threads)
+        )
         rnn_states = np.array(np.split(_t2n(rnn_states), self.n_rollout_threads))
-        rnn_states_critic = np.array(np.split(_t2n(rnn_states_critic), self.n_rollout_threads))
+        rnn_states_critic = np.array(
+            np.split(_t2n(rnn_states_critic), self.n_rollout_threads)
+        )
 
         return values, actions, action_log_probs, rnn_states, rnn_states_critic
 
@@ -255,7 +283,12 @@ class OvercookedRunner(Runner):
         else:
             share_obs = obs
 
-        bad_masks = np.array([[[0.0] if info["bad_transition"] else [1.0]] * self.num_agents for info in infos])
+        bad_masks = np.array(
+            [
+                [[0.0] if info["bad_transition"] else [1.0]] * self.num_agents
+                for info in infos
+            ]
+        )
 
         self.buffer.insert(
             share_obs,
@@ -273,35 +306,54 @@ class OvercookedRunner(Runner):
 
     def restore(self):
         if self.use_single_network:
-            policy_model_state_dict = torch.load(str(self.model_dir) + "/model.pt", map_location=self.device)
+            policy_model_state_dict = torch.load(
+                str(self.model_dir) + "/model.pt", map_location=self.device
+            )
             self.policy.model.load_state_dict(policy_model_state_dict)
         else:
-            policy_actor_state_dict = torch.load(str(self.model_dir), map_location=self.device)
+            policy_actor_state_dict = torch.load(
+                str(self.model_dir), map_location=self.device
+            )
             self.policy.actor.load_state_dict(policy_actor_state_dict)
             if not (self.all_args.use_render or self.all_args.use_eval):
-                policy_critic_state_dict = torch.load(str(self.model_dir) + "/critic.pt", map_location=self.device)
+                policy_critic_state_dict = torch.load(
+                    str(self.model_dir) + "/critic.pt", map_location=self.device
+                )
                 self.policy.critic.load_state_dict(policy_critic_state_dict)
 
     def save(self, step, save_critic: bool = False):
-        # logger.info(f"save sp periodic_{step}.pt")
+        artifact = wandb.Artifact(
+            name=self.algorithm_name,
+            type="model",
+            description=f"Model checkpoint at step {step}",
+        )
+
+        model_file_name = f"model_periodic_{step}.pt"
+        critic_file_name = f"critic_periodic_{step}.pt"
+        actor_file_name = f"actor_periodic_{step}.pt"
+
+        model_path = osp.join(str(self.save_dir), model_file_name)
+        critic_path = osp.join(str(self.save_dir), critic_file_name)
+        actor_path = osp.join(str(self.save_dir), actor_file_name)
+
         if self.use_single_network:
             policy_model = self.trainer.policy.model
-            torch.save(
-                policy_model.state_dict(),
-                str(self.save_dir) + f"/model_periodic_{step}.pt",
-            )
+            torch.save(policy_model.state_dict(), model_path)
+            artifact.add_file(model_path, name=model_file_name)
         else:
             policy_actor = self.trainer.policy.actor
-            torch.save(
-                policy_actor.state_dict(),
-                str(self.save_dir) + f"/actor_periodic_{step}.pt",
-            )
+
+            torch.save(policy_actor.state_dict(), actor_path)
+            artifact.add_file(actor_path, name=actor_file_name)
+
             if save_critic:
                 policy_critic = self.trainer.policy.critic
-                torch.save(
-                    policy_critic.state_dict(),
-                    str(self.save_dir) + f"/critic_periodic_{step}.pt",
-                )
+
+                torch.save(policy_critic.state_dict(), critic_path)
+                artifact.add_file(actor_path, name=actor_file_name)
+
+        if self.use_wandb:
+            wandb.log_artifact(artifact)
 
     @torch.no_grad()
     def eval(self, total_num_steps):
@@ -327,7 +379,9 @@ class OvercookedRunner(Runner):
             (self.n_eval_rollout_threads, *self.buffer.rnn_states.shape[2:]),
             dtype=np.float32,
         )
-        eval_masks = np.ones((self.n_eval_rollout_threads, self.num_agents, 1), dtype=np.float32)
+        eval_masks = np.ones(
+            (self.n_eval_rollout_threads, self.num_agents, 1), dtype=np.float32
+        )
 
         for _ in range(self.episode_length):
             self.trainer.prep_rollout()
@@ -338,8 +392,12 @@ class OvercookedRunner(Runner):
                 np.concatenate(eval_available_actions),
                 deterministic=not self.all_args.eval_stochastic,
             )
-            eval_actions = np.array(np.split(_t2n(eval_action), self.n_eval_rollout_threads))
-            eval_rnn_states = np.array(np.split(_t2n(eval_rnn_states), self.n_eval_rollout_threads))
+            eval_actions = np.array(
+                np.split(_t2n(eval_action), self.n_eval_rollout_threads)
+            )
+            eval_rnn_states = np.array(
+                np.split(_t2n(eval_rnn_states), self.n_eval_rollout_threads)
+            )
 
             # Obser reward and next obs
             (
@@ -357,21 +415,35 @@ class OvercookedRunner(Runner):
                 ((eval_dones == True).sum(), self.recurrent_N, self.hidden_size),
                 dtype=np.float32,
             )
-            eval_masks = np.ones((self.n_eval_rollout_threads, self.num_agents, 1), dtype=np.float32)
-            eval_masks[eval_dones == True] = np.zeros(((eval_dones == True).sum(), 1), dtype=np.float32)
+            eval_masks = np.ones(
+                (self.n_eval_rollout_threads, self.num_agents, 1), dtype=np.float32
+            )
+            eval_masks[eval_dones == True] = np.zeros(
+                ((eval_dones == True).sum(), 1), dtype=np.float32
+            )
 
         for eval_info in eval_infos:
             for a in range(self.num_agents):
-                eval_env_infos[f"eval_ep_sparse_r_by_agent{a}"].append(eval_info["episode"]["ep_sparse_r_by_agent"][a])
-                eval_env_infos[f"eval_ep_shaped_r_by_agent{a}"].append(eval_info["episode"]["ep_shaped_r_by_agent"][a])
+                eval_env_infos[f"eval_ep_sparse_r_by_agent{a}"].append(
+                    eval_info["episode"]["ep_sparse_r_by_agent"][a]
+                )
+                eval_env_infos[f"eval_ep_shaped_r_by_agent{a}"].append(
+                    eval_info["episode"]["ep_shaped_r_by_agent"][a]
+                )
                 for i, k in enumerate(shaped_info_keys):
                     eval_env_infos[f"eval_ep_{k}_by_agent{a}"].append(
                         eval_info["episode"]["ep_category_r_by_agent"][a][i]
                     )
-            eval_env_infos["eval_ep_sparse_r"].append(eval_info["episode"]["ep_sparse_r"])
-            eval_env_infos["eval_ep_shaped_r"].append(eval_info["episode"]["ep_shaped_r"])
+            eval_env_infos["eval_ep_sparse_r"].append(
+                eval_info["episode"]["ep_sparse_r"]
+            )
+            eval_env_infos["eval_ep_shaped_r"].append(
+                eval_info["episode"]["ep_shaped_r"]
+            )
 
-        eval_env_infos["eval_average_episode_rewards"] = np.sum(eval_average_episode_rewards, axis=0)
+        eval_env_infos["eval_average_episode_rewards"] = np.sum(
+            eval_average_episode_rewards, axis=0
+        )
         logger.success(
             f'eval average sparse rewards {np.mean(eval_env_infos["eval_ep_sparse_r"]):.3f} {len(eval_env_infos["eval_ep_sparse_r"])} episodes, total num timesteps {total_num_steps}/{self.num_env_steps}'
         )
@@ -388,7 +460,9 @@ class OvercookedRunner(Runner):
                 (self.n_rollout_threads, *self.buffer.rnn_states.shape[2:]),
                 dtype=np.float32,
             )
-            masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
+            masks = np.ones(
+                (self.n_rollout_threads, self.num_agents, 1), dtype=np.float32
+            )
 
             episode_rewards = []
             for step in range(self.episode_length):
@@ -401,7 +475,9 @@ class OvercookedRunner(Runner):
                     deterministic=True,
                 )
                 actions = np.array(np.split(_t2n(action), self.n_rollout_threads))
-                rnn_states = np.array(np.split(_t2n(rnn_states), self.n_rollout_threads))
+                rnn_states = np.array(
+                    np.split(_t2n(rnn_states), self.n_rollout_threads)
+                )
                 # Obser reward and next obs
                 obs, _, rewards, dones, infos, available_actions = envs.step(actions)
                 obs = np.stack(obs)
@@ -412,10 +488,17 @@ class OvercookedRunner(Runner):
                     ((dones == True).sum(), self.recurrent_N, self.hidden_size),
                     dtype=np.float32,
                 )
-                masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
-                masks[dones == True] = np.zeros(((dones == True).sum(), 1), dtype=np.float32)
+                masks = np.ones(
+                    (self.n_rollout_threads, self.num_agents, 1), dtype=np.float32
+                )
+                masks[dones == True] = np.zeros(
+                    ((dones == True).sum(), 1), dtype=np.float32
+                )
 
-            logger.info("average episode rewards is: " + str(np.mean(np.sum(np.array(episode_rewards), axis=0))))
+            logger.info(
+                "average episode rewards is: "
+                + str(np.mean(np.sum(np.array(episode_rewards), axis=0)))
+            )
 
     def evaluate_one_episode_with_multi_policy(self, policy_pool: Dict, map_ea2p: Dict):
         """Evaluate one episode with different policy for each agent.
@@ -424,15 +507,21 @@ class OvercookedRunner(Runner):
             map_ea2p (Dict): a mapping from (env_id, agent_id) to policy name
         """
         # warnings.warn("Evaluation with multi policy is not compatible with async done.")
-        [policy.reset(self.n_eval_rollout_threads, self.num_agents) for _, policy in policy_pool.items()]
+        [
+            policy.reset(self.n_eval_rollout_threads, self.num_agents)
+            for _, policy in policy_pool.items()
+        ]
         for e in range(self.n_eval_rollout_threads):
             for agent_id in range(self.num_agents):
                 if not map_ea2p[(e, agent_id)].startswith("script:"):
-                    policy_pool[map_ea2p[(e, agent_id)]].register_control_agent(e, agent_id)
+                    policy_pool[map_ea2p[(e, agent_id)]].register_control_agent(
+                        e, agent_id
+                    )
         if self.all_args.algorithm_name == "cole":
             c_a_str = {
                 p_name: len(policy_pool[p_name].control_agents)
-                for p_name in self.generated_population_names + [self.trainer.agent_name]
+                for p_name in self.generated_population_names
+                + [self.trainer.agent_name]
             }
             logger.debug(f"control agents num:\n{c_a_str}")
 
@@ -442,16 +531,23 @@ class OvercookedRunner(Runner):
         extract_info_keys = []  # ['stuck', 'can_begin_cook']
         infos = None
         for _ in range(self.all_args.episode_length):
-            eval_actions = np.full((self.n_eval_rollout_threads, self.num_agents, 1), fill_value=0).tolist()
+            eval_actions = np.full(
+                (self.n_eval_rollout_threads, self.num_agents, 1), fill_value=0
+            ).tolist()
             for _, policy in policy_pool.items():
                 if len(policy.control_agents) > 0:
                     policy.prep_rollout()
                     policy.to(self.device)
                     obs_lst = [eval_obs[e][a] for (e, a) in policy.control_agents]
-                    avail_action_lst = [eval_available_actions[e][a] for (e, a) in policy.control_agents]
+                    avail_action_lst = [
+                        eval_available_actions[e][a] for (e, a) in policy.control_agents
+                    ]
                     info_lst = None
                     if infos is not None:
-                        info_lst = {k: [infos[e][k][a] for e, a in policy.control_agents] for k in extract_info_keys}
+                        info_lst = {
+                            k: [infos[e][k][a] for e, a in policy.control_agents]
+                            for k in extract_info_keys
+                        }
                     agents = policy.control_agents
                     actions = policy.step(
                         np.stack(obs_lst, axis=0),
@@ -494,25 +590,39 @@ class OvercookedRunner(Runner):
                     eval_env_infos[f"eval_ep_{k}_by_agent{a}"].append(
                         eval_info["episode"]["ep_category_r_by_agent"][a][i]
                     )
-                eval_env_infos[f"eval_ep_sparse_r_by_agent{a}"].append(eval_info["episode"]["ep_sparse_r_by_agent"][a])
-                eval_env_infos[f"eval_ep_shaped_r_by_agent{a}"].append(eval_info["episode"]["ep_shaped_r_by_agent"][a])
-            eval_env_infos["eval_ep_sparse_r"].append(eval_info["episode"]["ep_sparse_r"])
-            eval_env_infos["eval_ep_shaped_r"].append(eval_info["episode"]["ep_shaped_r"])
+                eval_env_infos[f"eval_ep_sparse_r_by_agent{a}"].append(
+                    eval_info["episode"]["ep_sparse_r_by_agent"][a]
+                )
+                eval_env_infos[f"eval_ep_shaped_r_by_agent{a}"].append(
+                    eval_info["episode"]["ep_shaped_r_by_agent"][a]
+                )
+            eval_env_infos["eval_ep_sparse_r"].append(
+                eval_info["episode"]["ep_sparse_r"]
+            )
+            eval_env_infos["eval_ep_shaped_r"].append(
+                eval_info["episode"]["ep_shaped_r"]
+            )
 
         return eval_env_infos
 
-    def evaluate_with_multi_policy(self, policy_pool=None, map_ea2p=None, num_eval_episodes=None):
+    def evaluate_with_multi_policy(
+        self, policy_pool=None, map_ea2p=None, num_eval_episodes=None
+    ):
         """Evaluate with different policy for each agent."""
         policy_pool = policy_pool or self.policy.policy_pool
         map_ea2p = map_ea2p or self.policy.map_ea2p
         num_eval_episodes = num_eval_episodes or self.all_args.eval_episodes
-        logger.debug(f"evaluate {self.population_size} policies with {num_eval_episodes} episodes")
+        logger.debug(
+            f"evaluate {self.population_size} policies with {num_eval_episodes} episodes"
+        )
         eval_infos = defaultdict(list)
         for _ in tqdm(
             range(max(1, num_eval_episodes // self.n_eval_rollout_threads)),
             desc="Evaluate with Population",
         ):
-            eval_env_info = self.evaluate_one_episode_with_multi_policy(policy_pool, map_ea2p)
+            eval_env_info = self.evaluate_one_episode_with_multi_policy(
+                policy_pool, map_ea2p
+            )
             for k, v in eval_env_info.items():
                 for e in range(self.n_eval_rollout_threads):
                     agent0, agent1 = map_ea2p[(e, 0)], map_ea2p[(e, 1)]
@@ -566,7 +676,9 @@ class OvercookedRunner(Runner):
 
                 if getattr(self.all_args, "eval_result_path", None):
                     logger.debug(f"dump eval_infos to {self.all_args.eval_result_path}")
-                    with open(self.all_args.eval_result_path, "w", encoding="utf-8") as f:
+                    with open(
+                        self.all_args.eval_result_path, "w", encoding="utf-8"
+                    ) as f:
                         json.dump(self.br_eval_json, f)
         elif getattr(self.all_args, "eval_result_path", None):
             logger.debug(f"dump eval_infos to {self.all_args.eval_result_path}")
@@ -575,7 +687,9 @@ class OvercookedRunner(Runner):
 
         return eval_infos
 
-    def naive_train_with_multi_policy(self, reset_map_ea2t_fn=None, reset_map_ea2p_fn=None):
+    def naive_train_with_multi_policy(
+        self, reset_map_ea2t_fn=None, reset_map_ea2p_fn=None
+    ):
         """This is a naive training loop using TrainerPool and PolicyPool.
 
         To use PolicyPool and TrainerPool, you should first initialize population in policy_pool, with either:
@@ -601,7 +715,9 @@ class OvercookedRunner(Runner):
         """
 
         start = time.time()
-        episodes = int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
+        episodes = (
+            int(self.num_env_steps) // self.episode_length // self.n_rollout_threads
+        )
         total_num_steps = 0
         env_infos = defaultdict(list)
         self.eval_info = dict()
@@ -622,12 +738,16 @@ class OvercookedRunner(Runner):
                     load_unused_to_cpu=True,
                 )
                 if self.all_args.use_policy_in_env:
-                    load_policy_cfg = np.full((self.n_rollout_threads, self.num_agents), fill_value=None).tolist()
+                    load_policy_cfg = np.full(
+                        (self.n_rollout_threads, self.num_agents), fill_value=None
+                    ).tolist()
                     for e in range(self.n_rollout_threads):
                         for a in range(self.num_agents):
                             trainer_name = map_ea2t[(e, a)]
                             if trainer_name not in self.trainer.on_training:
-                                load_policy_cfg[e][a] = self.trainer.policy_pool.policy_info[trainer_name]
+                                load_policy_cfg[e][a] = (
+                                    self.trainer.policy_pool.policy_info[trainer_name]
+                                )
                     self.envs.load_policy(load_policy_cfg)
 
             # init env
@@ -656,9 +776,16 @@ class OvercookedRunner(Runner):
                     available_actions,
                 ) = self.envs.step(actions)
                 total_num_steps += self.n_rollout_threads
-                self.envs.anneal_reward_shaping_factor(self.trainer.reward_shaping_steps())
+                self.envs.anneal_reward_shaping_factor(
+                    self.trainer.reward_shaping_steps()
+                )
 
-                bad_masks = np.array([[[0.0] if info["bad_transition"] else [1.0]] * self.num_agents for info in infos])
+                bad_masks = np.array(
+                    [
+                        [[0.0] if info["bad_transition"] else [1.0]] * self.num_agents
+                        for info in infos
+                    ]
+                )
 
                 self.trainer.insert_data(
                     share_obs,
@@ -672,7 +799,9 @@ class OvercookedRunner(Runner):
 
             # update env infos
             episode_env_infos = defaultdict(list)
-            ep_returns_per_trainer = defaultdict(lambda: [[] for _ in range(self.num_agents)])
+            ep_returns_per_trainer = defaultdict(
+                lambda: [[] for _ in range(self.num_agents)]
+            )
             e2ta = dict()
             if self.env_name == "Overcooked":
                 if self.all_args.overcooked_version == "old":
@@ -693,20 +822,29 @@ class OvercookedRunner(Runner):
                     for log_name in [
                         f"{agent0_trainer}-{agent1_trainer}",
                     ]:
-                        episode_env_infos[f"{log_name}-ep_sparse_r"].append(info["episode"]["ep_sparse_r"])
-                        episode_env_infos[f"{log_name}-ep_shaped_r"].append(info["episode"]["ep_shaped_r"])
+                        episode_env_infos[f"{log_name}-ep_sparse_r"].append(
+                            info["episode"]["ep_sparse_r"]
+                        )
+                        episode_env_infos[f"{log_name}-ep_shaped_r"].append(
+                            info["episode"]["ep_shaped_r"]
+                        )
                         for a in range(self.num_agents):
-                            if getattr(self.all_args, "stage", 1) == 1 or not self.all_args.use_wandb:
+                            if (
+                                getattr(self.all_args, "stage", 1) == 1
+                                or not self.all_args.use_wandb
+                            ):
                                 for i, k in enumerate(shaped_info_keys):
-                                    episode_env_infos[f"{log_name}-ep_{k}_by_agent{a}"].append(
+                                    episode_env_infos[
+                                        f"{log_name}-ep_{k}_by_agent{a}"
+                                    ].append(
                                         info["episode"]["ep_category_r_by_agent"][a][i]
                                     )
-                            episode_env_infos[f"{log_name}-ep_sparse_r_by_agent{a}"].append(
-                                info["episode"]["ep_sparse_r_by_agent"][a]
-                            )
-                            episode_env_infos[f"{log_name}-ep_shaped_r_by_agent{a}"].append(
-                                info["episode"]["ep_shaped_r_by_agent"][a]
-                            )
+                            episode_env_infos[
+                                f"{log_name}-ep_sparse_r_by_agent{a}"
+                            ].append(info["episode"]["ep_sparse_r_by_agent"][a])
+                            episode_env_infos[
+                                f"{log_name}-ep_shaped_r_by_agent{a}"
+                            ].append(info["episode"]["ep_shaped_r_by_agent"][a])
                     for k in ["ep_sparse_r", "ep_shaped_r"]:
                         for log_name in [
                             f"either-{agent0_trainer}-{k}",
@@ -717,10 +855,14 @@ class OvercookedRunner(Runner):
                             episode_env_infos[log_name].append(info["episode"][k])
                     if agent0_trainer != self.trainer.agent_name:
                         # suitable for both stage 1 and stage 2
-                        ep_returns_per_trainer[agent1_trainer][1].append(info["episode"]["ep_sparse_r"])
+                        ep_returns_per_trainer[agent1_trainer][1].append(
+                            info["episode"]["ep_sparse_r"]
+                        )
                         e2ta[e] = (agent1_trainer, 1)
                     elif agent1_trainer != self.trainer.agent_name:
-                        ep_returns_per_trainer[agent0_trainer][0].append(info["episode"]["ep_sparse_r"])
+                        ep_returns_per_trainer[agent0_trainer][0].append(
+                            info["episode"]["ep_sparse_r"]
+                        )
                         e2ta[e] = (agent0_trainer, 0)
                 env_infos.update(episode_env_infos)
             max_ep_sparse_r_dict = defaultdict(lambda: [0, 0])
@@ -736,7 +878,9 @@ class OvercookedRunner(Runner):
             else:
                 self.trainer.adapt_entropy_coef(total_num_steps)
 
-            train_infos = self.trainer.train(sp_size=getattr(self, "n_repeats", 0) * self.num_agents)
+            train_infos = self.trainer.train(
+                sp_size=getattr(self, "n_repeats", 0) * self.num_agents
+            )
             e_time = time.time()
             logger.trace(f"Update models time: {e_time - s_time:.3f}s")
 
@@ -753,10 +897,14 @@ class OvercookedRunner(Runner):
                             if agent_pair not in self.avg_adv.keys():
                                 self.avg_adv[agent_pair] = v
                             else:
-                                self.avg_adv[agent_pair] = self.avg_adv[agent_pair] * 0.99 + v * 0.01
+                                self.avg_adv[agent_pair] = (
+                                    self.avg_adv[agent_pair] * 0.99 + v * 0.01
+                                )
 
             # post process
-            total_num_steps = (episode + 1) * self.episode_length * self.n_rollout_threads
+            total_num_steps = (
+                (episode + 1) * self.episode_length * self.n_rollout_threads
+            )
 
             # save model
             if episode < 50:
@@ -774,7 +922,9 @@ class OvercookedRunner(Runner):
 
             self.trainer.update_best_r(
                 {
-                    trainer_name: np.mean(self.env_info.get(f"either-{trainer_name}-ep_sparse_r", -1e9))
+                    trainer_name: np.mean(
+                        self.env_info.get(f"either-{trainer_name}-ep_sparse_r", -1e9)
+                    )
                     for trainer_name in self.trainer.active_trainers
                 },
                 save_dir=self.save_dir,
@@ -803,7 +953,9 @@ class OvercookedRunner(Runner):
                     for k in train_infos.keys()
                     if "average_episode_rewards" in k and "either" not in k
                 }
-                logger.info(f"average episode rewards is\n{pprint.pformat(average_ep_rew_dict, width=600)}")
+                logger.info(
+                    f"average episode rewards is\n{pprint.pformat(average_ep_rew_dict, width=600)}"
+                )
                 average_ep_sparse_rew_dict = {
                     k[: k.rfind("-")]: f"{np.mean(env_infos[k]):.3f}"
                     for k in env_infos.keys()
@@ -823,7 +975,12 @@ class OvercookedRunner(Runner):
                     wandb.log({"train/ETA": eta_t}, step=total_num_steps)
 
             # eval
-            if episode > 0 and episode % self.eval_interval == 0 and self.use_eval or episode == episodes - 1:
+            if (
+                episode > 0
+                and episode % self.eval_interval == 0
+                and self.use_eval
+                or episode == episodes - 1
+            ):
                 if reset_map_ea2p_fn is not None:
                     map_ea2p = reset_map_ea2p_fn(episode)
                     self.policy.set_map_ea2p(map_ea2p, load_unused_to_cpu=True)
@@ -845,7 +1002,9 @@ class OvercookedRunner(Runner):
             self.trainer.population.keys()
         )  # Note index and trainer name would not match when there are >= 10 agents
 
-        logger.info(f"population_size: {self.all_args.population_size}, {self.population}")
+        logger.info(
+            f"population_size: {self.all_args.population_size}, {self.population}"
+        )
 
         if self.all_args.stage == 1:
             # Stage 1: train a maximum entropy population
@@ -862,7 +1021,11 @@ class OvercookedRunner(Runner):
             def pbt_reset_map_ea2t_fn(episode):
                 # Round robin trainer
                 trainer_name = self.population[episode % self.population_size]
-                map_ea2t = {(e, a): trainer_name for e in range(self.n_rollout_threads) for a in range(self.num_agents)}
+                map_ea2t = {
+                    (e, a): trainer_name
+                    for e in range(self.n_rollout_threads)
+                    for a in range(self.num_agents)
+                }
                 return map_ea2t
 
             # MARK: *self.population_size
@@ -889,24 +1052,32 @@ class OvercookedRunner(Runner):
             )
             assert self.n_rollout_threads % self.all_args.train_env_batch == 0
             self.all_args.eval_episodes = (
-                self.all_args.eval_episodes * self.population_size // self.all_args.eval_env_batch
+                self.all_args.eval_episodes
+                * self.population_size
+                // self.all_args.eval_env_batch
             )
             self.eval_idx = 0
-            all_agent_pairs = list(itertools.product(self.population, [agent_name])) + list(
-                itertools.product([agent_name], self.population)
-            )
+            all_agent_pairs = list(
+                itertools.product(self.population, [agent_name])
+            ) + list(itertools.product([agent_name], self.population))
             logger.info(f"all agent pairs: {all_agent_pairs}")
 
-            running_avg_r = -np.ones((self.population_size * 2,), dtype=np.float32) * 1e9
+            running_avg_r = (
+                -np.ones((self.population_size * 2,), dtype=np.float32) * 1e9
+            )
 
             def mep_reset_map_ea2t_fn(episode):
                 # Randomly select agents from population to be trained
                 # 1) consistent with MEP to train against one agent each episode 2) sample different agents to train against
-                sampling_prob_np = np.ones((self.population_size * 2,)) / self.population_size / 2
+                sampling_prob_np = (
+                    np.ones((self.population_size * 2,)) / self.population_size / 2
+                )
                 if self.all_args.use_advantage_prioritized_sampling:
                     # logger.debug("use advantage prioritized sampling")
                     if episode > 0:
-                        metric_np = np.array([self.avg_adv[agent_pair] for agent_pair in all_agent_pairs])
+                        metric_np = np.array(
+                            [self.avg_adv[agent_pair] for agent_pair in all_agent_pairs]
+                        )
                         # TODO: retry this
                         sampling_rank_np = rankdata(metric_np, method="dense")
                         sampling_prob_np = sampling_rank_np / sampling_rank_np.sum()
@@ -918,7 +1089,11 @@ class OvercookedRunner(Runner):
                 elif self.all_args.mep_use_prioritized_sampling:
                     metric_np = np.zeros((self.population_size * 2,))
                     for i, agent_pair in enumerate(all_agent_pairs):
-                        train_r = np.mean(self.env_info.get(f"{agent_pair[0]}-{agent_pair[1]}-ep_sparse_r", -1e9))
+                        train_r = np.mean(
+                            self.env_info.get(
+                                f"{agent_pair[0]}-{agent_pair[1]}-ep_sparse_r", -1e9
+                            )
+                        )
                         eval_r = np.mean(
                             self.eval_info.get(
                                 f"{agent_pair[0]}-{agent_pair[1]}-eval_ep_sparse_r",
@@ -929,15 +1104,23 @@ class OvercookedRunner(Runner):
                         avg_r = 0.0
                         cnt_r = 0
                         if train_r > -1e9:
-                            avg_r += train_r * (self.n_rollout_threads // self.all_args.train_env_batch)
-                            cnt_r += self.n_rollout_threads // self.all_args.train_env_batch
+                            avg_r += train_r * (
+                                self.n_rollout_threads // self.all_args.train_env_batch
+                            )
+                            cnt_r += (
+                                self.n_rollout_threads // self.all_args.train_env_batch
+                            )
                         if eval_r > -1e9:
                             avg_r += eval_r * (
                                 self.all_args.eval_episodes
-                                // (self.n_eval_rollout_threads // self.all_args.eval_env_batch)
+                                // (
+                                    self.n_eval_rollout_threads
+                                    // self.all_args.eval_env_batch
+                                )
                             )
                             cnt_r += self.all_args.eval_episodes // (
-                                self.n_eval_rollout_threads // self.all_args.eval_env_batch
+                                self.n_eval_rollout_threads
+                                // self.all_args.eval_env_batch
                             )
                         if cnt_r > 0:
                             avg_r /= cnt_r
@@ -951,9 +1134,9 @@ class OvercookedRunner(Runner):
                         metric_np[i] = running_avg_r[i]
                     running_avg_r_dict = {}
                     for i, agent_pair in enumerate(all_agent_pairs):
-                        running_avg_r_dict[f"running_average_return/{agent_pair[0]}-{agent_pair[1]}"] = np.mean(
-                            running_avg_r[i]
-                        )
+                        running_avg_r_dict[
+                            f"running_average_return/{agent_pair[0]}-{agent_pair[1]}"
+                        ] = np.mean(running_avg_r[i])
                     if self.use_wandb:
                         for k, v in running_avg_r_dict.items():
                             if v > -1e9:
@@ -962,7 +1145,9 @@ class OvercookedRunner(Runner):
                         f"running_average_return/{agent_pair[0]}-{agent_pair[1]}": f"{running_avg_r[i]:.3f}"
                         for i, agent_pair in enumerate(all_agent_pairs)
                     }
-                    logger.trace(f"running avg_r\n{pprint.pformat(running_avg_r_dict, width=600, compact=True)}")
+                    logger.trace(
+                        f"running avg_r\n{pprint.pformat(running_avg_r_dict, width=600, compact=True)}"
+                    )
                     if (metric_np > -1e9).astype(np.int32).sum() > 0:
                         avg_metric = metric_np[metric_np > -1e9].mean()
                     else:
@@ -971,23 +1156,36 @@ class OvercookedRunner(Runner):
                     metric_np[metric_np == -1e9] = avg_metric
 
                     # reversed return
-                    sampling_rank_np = rankdata(1.0 / (metric_np + 1e-6), method="dense")
+                    sampling_rank_np = rankdata(
+                        1.0 / (metric_np + 1e-6), method="dense"
+                    )
                     sampling_prob_np = sampling_rank_np / sampling_rank_np.sum()
-                    sampling_prob_np = sampling_prob_np**self.all_args.mep_prioritized_alpha
+                    sampling_prob_np = (
+                        sampling_prob_np**self.all_args.mep_prioritized_alpha
+                    )
                     sampling_prob_np /= sampling_prob_np.sum()
                 assert abs(sampling_prob_np.sum() - 1) < 1e-3
 
                 # log sampling prob
                 sampling_prob_dict = {}
                 for i, agent_pair in enumerate(all_agent_pairs):
-                    sampling_prob_dict[f"sampling_prob/{agent_pair[0]}-{agent_pair[1]}"] = sampling_prob_np[i]
+                    sampling_prob_dict[
+                        f"sampling_prob/{agent_pair[0]}-{agent_pair[1]}"
+                    ] = sampling_prob_np[i]
                 if self.use_wandb:
                     wandb.log(sampling_prob_dict, step=self.total_num_steps)
 
                 n_selected = self.n_rollout_threads // self.all_args.train_env_batch
-                pair_idx = np.random.choice(2 * self.population_size, size=(n_selected,), p=sampling_prob_np)
+                pair_idx = np.random.choice(
+                    2 * self.population_size, size=(n_selected,), p=sampling_prob_np
+                )
                 if self.all_args.uniform_sampling_repeat > 0:
-                    assert n_selected >= 2 * self.population_size * self.all_args.uniform_sampling_repeat
+                    assert (
+                        n_selected
+                        >= 2
+                        * self.population_size
+                        * self.all_args.uniform_sampling_repeat
+                    )
                     i = 0
                     for r in range(self.all_args.uniform_sampling_repeat):
                         for x in range(2 * self.population_size):
@@ -995,7 +1193,9 @@ class OvercookedRunner(Runner):
                             i += 1
                 map_ea2t = {
                     (e, a): all_agent_pairs[pair_idx[e % n_selected]][a]
-                    for e, a in itertools.product(range(self.n_rollout_threads), range(self.num_agents))
+                    for e, a in itertools.product(
+                        range(self.n_rollout_threads), range(self.num_agents)
+                    )
                 }
 
                 return map_ea2t
@@ -1004,19 +1204,29 @@ class OvercookedRunner(Runner):
                 if self.all_args.eval_policy != "":
                     map_ea2p = {
                         (e, a): [self.all_args.eval_policy, agent_name][(e + a) % 2]
-                        for e, a in itertools.product(range(self.n_eval_rollout_threads), range(self.num_agents))
+                        for e, a in itertools.product(
+                            range(self.n_eval_rollout_threads), range(self.num_agents)
+                        )
                     }
                 else:
                     map_ea2p = {
                         (e, a): all_agent_pairs[
-                            (self.eval_idx + e // self.all_args.eval_env_batch) % (self.population_size * 2)
+                            (self.eval_idx + e // self.all_args.eval_env_batch)
+                            % (self.population_size * 2)
                         ][a]
-                        for e, a in itertools.product(range(self.n_eval_rollout_threads), range(self.num_agents))
+                        for e, a in itertools.product(
+                            range(self.n_eval_rollout_threads), range(self.num_agents)
+                        )
                     }
-                    self.eval_idx += self.n_eval_rollout_threads // self.all_args.eval_env_batch
+                    self.eval_idx += (
+                        self.n_eval_rollout_threads // self.all_args.eval_env_batch
+                    )
                     self.eval_idx %= self.population_size * 2
                 featurize_type = [
-                    [self.policy.featurize_type[map_ea2p[(e, a)]] for a in range(self.num_agents)]
+                    [
+                        self.policy.featurize_type[map_ea2p[(e, a)]]
+                        for a in range(self.num_agents)
+                    ]
                     for e in range(self.n_eval_rollout_threads)
                 ]
                 self.eval_envs.reset_featurize_type(featurize_type)
@@ -1034,7 +1244,9 @@ class OvercookedRunner(Runner):
             self.trainer.population.keys()
         )  # Note index and trainer name would not match when there are >= 10 agents
 
-        logger.info(f"population_size: {self.all_args.population_size}, {self.population}")
+        logger.info(
+            f"population_size: {self.all_args.population_size}, {self.population}"
+        )
 
         assert self.n_rollout_threads % self.all_args.train_env_batch == 0
         assert self.all_args.stage == 1
@@ -1052,7 +1264,9 @@ class OvercookedRunner(Runner):
             def pbt_reset_map_ea2t_fn(episode):
                 # Round robin trainer
                 map_ea2t = {
-                    (e, a): self.population[(e + episode * self.n_rollout_threads) % self.population_size]
+                    (e, a): self.population[
+                        (e + episode * self.n_rollout_threads) % self.population_size
+                    ]
                     for e in range(self.n_rollout_threads)
                     for a in range(self.num_agents)
                 }
@@ -1131,21 +1345,33 @@ class OvercookedRunner(Runner):
                     eval_r = []
                     for log_name in [f"{p}-{agent_name}", f"{agent_name}-{p}"]:
                         if f"{log_name}-ep_sparse_r" in self.env_info:
-                            eval_r.append(np.mean(self.env_info[f"{log_name}-ep_sparse_r"]))
+                            eval_r.append(
+                                np.mean(self.env_info[f"{log_name}-ep_sparse_r"])
+                            )
                     if len(eval_r) > 0:
-                        self.u_matrix[agent_name][p] = (self.u_matrix[agent_name][p] + np.mean(eval_r)) / 2
+                        self.u_matrix[agent_name][p] = (
+                            self.u_matrix[agent_name][p] + np.mean(eval_r)
+                        ) / 2
 
-            if episode > self.generation_interval and episode % self.generation_interval == 1:
+            if (
+                episode > self.generation_interval
+                and episode % self.generation_interval == 1
+            ):
                 # generate a new partner
                 model_path = self.trainer.save_actor(agent_name, self.generation + 1)
                 self.generation += 1
-                available_population = list(set(self.population).difference(set(self.generated_population_names)))
+                available_population = list(
+                    set(self.population).difference(
+                        set(self.generated_population_names)
+                    )
+                )
                 if len(available_population) > 0:
                     percent = 0.9
                 else:
                     percent = 0.8
                 metric_np = [
-                    np.mean([v for _, v in self.u_matrix[p_name].items()]) for p_name in self.generated_population_names
+                    np.mean([v for _, v in self.u_matrix[p_name].items()])
+                    for p_name in self.generated_population_names
                 ] + [np.mean([v for _, v in self.u_matrix[agent_name].items()])]
                 rank = np.argsort(np.argsort(metric_np))[-1]
                 if self.use_wandb:
@@ -1154,7 +1380,9 @@ class OvercookedRunner(Runner):
                 if rank >= threshold or self.n_generation_try >= 2:
                     if len(available_population) > 0:
                         p_name = available_population[0]
-                        self.trainer.policy_pool.update_policy(p_name, False, model_path={"actor": model_path})
+                        self.trainer.policy_pool.update_policy(
+                            p_name, False, model_path={"actor": model_path}
+                        )
                         logger.success(
                             f"add {model_path} with rank {rank}/{len(self.generated_population_names)} as {p_name}"
                         )
@@ -1163,7 +1391,9 @@ class OvercookedRunner(Runner):
                     else:
                         # replace old policy
                         p_name = np.random.choice(self.generated_population_names[:10])
-                        self.trainer.policy_pool.update_policy(p_name, False, model_path={"actor": model_path})
+                        self.trainer.policy_pool.update_policy(
+                            p_name, False, model_path={"actor": model_path}
+                        )
                         logger.success(
                             f"replace {model_path} with rank {rank}/{len(self.generated_population_names)} as {p_name}"
                         )
@@ -1171,7 +1401,9 @@ class OvercookedRunner(Runner):
                     self.u_matrix[p_name] = copy.deepcopy(self.u_matrix[agent_name])
                     for p, v in self.u_matrix[p_name].items():
                         self.u_matrix[p][p_name] = v
-                    sp_v = np.mean(self.env_info[f"{agent_name}-{agent_name}-ep_sparse_r"])
+                    sp_v = np.mean(
+                        self.env_info[f"{agent_name}-{agent_name}-ep_sparse_r"]
+                    )
                     self.u_matrix[p_name][p_name] = sp_v
                     self.u_matrix[agent_name][p_name] = sp_v
 
@@ -1179,32 +1411,47 @@ class OvercookedRunner(Runner):
                     population_str = zip(
                         self.generated_population_names,
                         [
-                            osp.basename(self.trainer.policy_pool.policy_info[a_n][1]["model_path"]["actor"])
+                            osp.basename(
+                                self.trainer.policy_pool.policy_info[a_n][1][
+                                    "model_path"
+                                ]["actor"]
+                            )
                             for a_n in self.generated_population_names
                         ],
                     )
-                    logger.success(f"population: size {len(self.generated_population_names)}, {list(population_str)}")
+                    logger.success(
+                        f"population: size {len(self.generated_population_names)}, {list(population_str)}"
+                    )
 
                     metric_np = [
                         np.mean([v for _, v in self.u_matrix[p_name].items()])
                         for p_name in self.generated_population_names
                     ] + [np.mean([v for _, v in self.u_matrix[agent_name].items()])]
                     ranks = np.argsort(np.argsort(metric_np)) + 1
-                    logger.success(f"utility matrix sum\n{[round(m, 3) for m in metric_np]}")
+                    logger.success(
+                        f"utility matrix sum\n{[round(m, 3) for m in metric_np]}"
+                    )
                     logger.success(f"ranks\n{ranks}")
                 else:
                     self.n_generation_try += 1
-                    logger.warning(f"Failed to generate a new partner, try {self.n_generation_try} / 3 times")
+                    logger.warning(
+                        f"Failed to generate a new partner, try {self.n_generation_try} / 3 times"
+                    )
                     logger.warning(
                         f"""population metric: {[round(m,3) for m in metric_np[:-1]]}, ego agent metric: {round(metric_np[-1], 3)} rank {rank}/{len(self.generated_population_names)}, need to rank >= {threshold}"""
                     )
 
-            all_agent_pairs = list(itertools.product(self.generated_population_names, [agent_name])) + list(
-                itertools.product([agent_name], self.generated_population_names)
+            all_agent_pairs = list(
+                itertools.product(self.generated_population_names, [agent_name])
+            ) + list(itertools.product([agent_name], self.generated_population_names))
+            rollout_block_size = self.n_rollout_threads // (
+                self.population_play_ratio + 1
             )
-            rollout_block_size = self.n_rollout_threads // (self.population_play_ratio + 1)
             map_ea2t = {
-                (e, a): agent_name for e, a in itertools.product(range(rollout_block_size), range(self.num_agents))
+                (e, a): agent_name
+                for e, a in itertools.product(
+                    range(rollout_block_size), range(self.num_agents)
+                )
             }
             metric_np = []
             for p_name in self.generated_population_names:
@@ -1232,7 +1479,9 @@ class OvercookedRunner(Runner):
 
             sampling_prob_np = np.repeat(sampling_prob_np, 2) / 2
             n_selected = self.n_rollout_threads - rollout_block_size
-            pair_idx = np.random.choice(2 * self.population_size, size=(n_selected,), p=sampling_prob_np)
+            pair_idx = np.random.choice(
+                2 * self.population_size, size=(n_selected,), p=sampling_prob_np
+            )
             for i in range(rollout_block_size, self.n_rollout_threads):
                 map_ea2t[(i, 0)] = all_agent_pairs[pair_idx[i - rollout_block_size]][0]
                 map_ea2t[(i, 1)] = all_agent_pairs[pair_idx[i - rollout_block_size]][1]
@@ -1240,7 +1489,9 @@ class OvercookedRunner(Runner):
 
         def cole_reset_map_ea2p_fn(episode):
             self.all_args.eval_episodes = (
-                self.all_args._eval_episodes * (self.population_size * 2 + 1) // self.all_args.eval_env_batch
+                self.all_args._eval_episodes
+                * (self.population_size * 2 + 1)
+                // self.all_args.eval_env_batch
             )
             all_agent_pairs = (
                 list(itertools.product(self.generated_population_names, [agent_name]))
@@ -1248,14 +1499,21 @@ class OvercookedRunner(Runner):
                 + [(agent_name, agent_name)]
             )
             map_ea2p = {
-                (e, a): all_agent_pairs[(self.eval_idx + e) % (self.population_size * 2 + 1)][a]
-                for e, a in itertools.product(range(self.n_eval_rollout_threads), range(self.num_agents))
+                (e, a): all_agent_pairs[
+                    (self.eval_idx + e) % (self.population_size * 2 + 1)
+                ][a]
+                for e, a in itertools.product(
+                    range(self.n_eval_rollout_threads), range(self.num_agents)
+                )
             }
             self.eval_idx += self.n_eval_rollout_threads
             self.eval_idx %= self.population_size * 2 + 1
 
             featurize_type = [
-                [self.policy.featurize_type[map_ea2p[(e, a)]] for a in range(self.num_agents)]
+                [
+                    self.policy.featurize_type[map_ea2p[(e, a)]]
+                    for a in range(self.num_agents)
+                ]
                 for e in range(self.n_eval_rollout_threads)
             ]
             self.eval_envs.reset_featurize_type(featurize_type)

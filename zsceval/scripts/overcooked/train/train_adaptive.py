@@ -90,8 +90,12 @@ def parse_args(args, parser):
         action="store_true",
         help="While existing other agent like planning or human model, use an index to fix the main RL-policy agent.",
     )
-    parser.add_argument("--policy_group_normalization", default=False, action="store_true")
-    parser.add_argument("--use_advantage_prioritized_sampling", default=False, action="store_true")
+    parser.add_argument(
+        "--policy_group_normalization", default=False, action="store_true"
+    )
+    parser.add_argument(
+        "--use_advantage_prioritized_sampling", default=False, action="store_true"
+    )
     parser.add_argument("--uniform_preference", default=False, action="store_true")
     parser.add_argument("--uniform_sampling_repeat", default=0, type=int)
     parser.add_argument("--use_task_v_out", default=False, action="store_true")
@@ -182,21 +186,25 @@ def main(args):
     if all_args.cuda and torch.cuda.is_available():
         n_gpu = torch.cuda.device_count()
         assert n_gpu == 1 or all_args.data_parallel
-        print(f"choose to use {n_gpu} gpu...")
+        logger.info(f"Using {n_gpu} gpus")
         device = torch.device("cuda:0")
         torch.set_num_threads(all_args.n_training_threads)
         if all_args.cuda_deterministic:
             torch.backends.cudnn.benchmark = False
             torch.backends.cudnn.deterministic = True
     else:
-        print("choose to use cpu...")
+        logger.info("Using CPU")
         device = torch.device("cpu")
         torch.set_num_threads(all_args.n_training_threads)
 
     # run dir
     base_run_dir = Path(get_base_run_dir())
     run_dir = (
-        base_run_dir / all_args.env_name / all_args.layout_name / all_args.algorithm_name / all_args.experiment_name
+        base_run_dir
+        / all_args.env_name
+        / all_args.layout_name
+        / all_args.algorithm_name
+        / all_args.experiment_name
     )
     if not run_dir.exists():
         os.makedirs(str(run_dir))
@@ -212,7 +220,11 @@ def main(args):
             project=project_name,
             entity=all_args.wandb_name,
             notes=socket.gethostname(),
-            name=str(all_args.algorithm_name) + "_" + str(all_args.experiment_name) + "_seed" + str(all_args.seed),
+            name=str(all_args.algorithm_name)
+            + "_"
+            + str(all_args.experiment_name)
+            + "_seed"
+            + str(all_args.seed),
             group=all_args.layout_name,
             dir=str(run_dir),
             job_type="training",
@@ -267,7 +279,9 @@ def main(args):
         "device": device,
         "run_dir": run_dir,
     }
-    pprint(all_args.__dict__)
+
+    logger.info(all_args.__dict__)
+
     # run experiments
     if all_args.share_policy:
         from zsceval.runner.shared.overcooked_runner import OvercookedRunner as Runner
@@ -279,7 +293,6 @@ def main(args):
     runner = Runner(config)
 
     # load population
-    # print("population_yaml_path: ", all_args.population_yaml_path)
     logger.info("population_yaml_path: ", all_args.population_yaml_path)
 
     #  override policy config
@@ -341,6 +354,6 @@ def main(args):
 if __name__ == "__main__":
     logger.remove()
     # logger.add(sys.stdout, level="TRACE")
-    logger.add(sys.stdout, level="DEBUG")
-    # logger.add(sys.stdout, level="INFO")
+    # logger.add(sys.stdout, level="DEBUG")
+    logger.add(sys.stdout, level="INFO")
     main(sys.argv[1:])

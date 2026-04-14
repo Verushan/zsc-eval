@@ -94,14 +94,14 @@ def main(args):
 
     # cuda
     if all_args.cuda and torch.cuda.is_available():
-        print("choose to use gpu...")
+        logger.info("Using GPU")
         device = torch.device("cuda:0")
         torch.set_num_threads(all_args.n_training_threads)
         if all_args.cuda_deterministic:
             torch.backends.cudnn.benchmark = False
             torch.backends.cudnn.deterministic = True
     else:
-        print("choose to use cpu...")
+        logger.info("Using CPU")
         device = torch.device("cpu")
         torch.set_num_threads(all_args.n_training_threads)
 
@@ -129,7 +129,11 @@ def main(args):
             project=all_args.env_name,
             entity=all_args.wandb_name,
             notes=socket.gethostname(),
-            name=str(all_args.algorithm_name) + "_" + str(all_args.experiment_name) + "_seed" + str(all_args.seed),
+            name=str(all_args.algorithm_name)
+            + "_"
+            + str(all_args.experiment_name)
+            + "_seed"
+            + str(all_args.seed),
             group=all_args.layout_name,
             dir=str(run_dir),
             job_type="training",
@@ -196,7 +200,9 @@ def main(args):
 
     # load population
     logger.info(f"population_yaml_path: {all_args.population_yaml_path}")
-    featurize_type = runner.policy.load_population(all_args.population_yaml_path, evaluation=True)
+    featurize_type = runner.policy.load_population(
+        all_args.population_yaml_path, evaluation=True
+    )
 
     # configure mapping from (env_id, agent_id) to policy_name
     # set featurize_type of eval threaded env
@@ -210,7 +216,9 @@ def main(args):
         map_ea2p[(e, 0)] = all_args.agent0_policy_name
         map_ea2p[(e, 1)] = all_args.agent1_policy_name
         featurize_types.append((agent0_featurize_type, agent1_featurize_type))
-    for e in range(all_args.n_eval_rollout_threads // 2, all_args.n_eval_rollout_threads):
+    for e in range(
+        all_args.n_eval_rollout_threads // 2, all_args.n_eval_rollout_threads
+    ):
         map_ea2p[(e, 1)] = all_args.agent0_policy_name
         map_ea2p[(e, 0)] = all_args.agent1_policy_name
         featurize_types.append((agent1_featurize_type, agent0_featurize_type))

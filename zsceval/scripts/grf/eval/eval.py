@@ -22,9 +22,13 @@ def make_eval_env(all_args):
     def get_env_fn(rank):
         def init_env():
             if all_args.env_name == "GRF":
-                env = FootballEnv(all_args, seed=all_args.seed * 50000 + rank * 10000, evaluation=True)
+                env = FootballEnv(
+                    all_args, seed=all_args.seed * 50000 + rank * 10000, evaluation=True
+                )
             else:
-                raise NotImplementedError("Can not support the " + all_args.env_name + "environment.")
+                raise NotImplementedError(
+                    "Can not support the " + all_args.env_name + "environment."
+                )
             return env
 
         return init_env
@@ -32,7 +36,9 @@ def make_eval_env(all_args):
     if all_args.n_eval_rollout_threads == 1:
         return ShareDummyVecEnv([get_env_fn(0)])
     else:
-        return ShareSubprocVecEnv([get_env_fn(i) for i in range(all_args.n_eval_rollout_threads)])
+        return ShareSubprocVecEnv(
+            [get_env_fn(i) for i in range(all_args.n_eval_rollout_threads)]
+        )
 
 
 def parse_args(args, parser):
@@ -46,7 +52,9 @@ def parse_args(args, parser):
     )
 
     # overcooked evaluation
-    parser.add_argument("--agent_policy_names", nargs="+", help="policy name of agents", required=True)
+    parser.add_argument(
+        "--agent_policy_names", nargs="+", help="policy name of agents", required=True
+    )
     parser.add_argument(
         "--population_size",
         type=int,
@@ -77,14 +85,14 @@ def main(args):
 
     # cuda
     if all_args.cuda and torch.cuda.is_available():
-        print("choose to use gpu...")
+        logger.info("Using GPU")
         device = torch.device("cuda:0")
         torch.set_num_threads(all_args.n_training_threads)
         if all_args.cuda_deterministic:
             torch.backends.cudnn.benchmark = False
             torch.backends.cudnn.deterministic = True
     else:
-        print("choose to use cpu...")
+        logger.info("Using CPU")
         device = torch.device("cpu")
         torch.set_num_threads(all_args.n_training_threads)
 
@@ -112,7 +120,11 @@ def main(args):
             project=all_args.env_name,
             entity=all_args.wandb_name,
             notes=socket.gethostname(),
-            name=str(all_args.algorithm_name) + "_" + str(all_args.experiment_name) + "_seed" + str(all_args.seed),
+            name=str(all_args.algorithm_name)
+            + "_"
+            + str(all_args.experiment_name)
+            + "_seed"
+            + str(all_args.seed),
             group=all_args.scenario_name,
             dir=str(run_dir),
             job_type="training",

@@ -99,31 +99,38 @@ def main(args):
     all_args = parse_args(args, parser)
 
     if all_args.algorithm_name == "rmappo":
-        assert all_args.use_recurrent_policy or all_args.use_naive_recurrent_policy, "check recurrent policy!"
+        assert (
+            all_args.use_recurrent_policy or all_args.use_naive_recurrent_policy
+        ), "check recurrent policy!"
     elif all_args.algorithm_name == "mappo":
         assert (
-            all_args.use_recurrent_policy == False and all_args.use_naive_recurrent_policy == False
+            all_args.use_recurrent_policy == False
+            and all_args.use_naive_recurrent_policy == False
         ), "check recurrent policy!"
     else:
         raise NotImplementedError
 
     # cuda
     if all_args.cuda and torch.cuda.is_available():
-        print("choose to use gpu...")
+        logger.info("Using GPU")
         device = torch.device("cuda:0")
         torch.set_num_threads(all_args.n_training_threads)
         if all_args.cuda_deterministic:
             torch.backends.cudnn.benchmark = False
             torch.backends.cudnn.deterministic = True
     else:
-        print("choose to use cpu...")
+        logger.info("Using CPU")
         device = torch.device("cpu")
         torch.set_num_threads(all_args.n_training_threads)
 
     # run dir
     base_run_dir = Path(get_base_run_dir())
     run_dir = (
-        base_run_dir / all_args.env_name / all_args.layout_name / all_args.algorithm_name / all_args.experiment_name
+        base_run_dir
+        / all_args.env_name
+        / all_args.layout_name
+        / all_args.algorithm_name
+        / all_args.experiment_name
     )
     if not run_dir.exists():
         os.makedirs(str(run_dir))
@@ -140,7 +147,11 @@ def main(args):
             project=project_name,
             entity=all_args.wandb_name,
             notes=socket.gethostname(),
-            name=str(all_args.algorithm_name) + "_" + str(all_args.experiment_name) + "_seed" + str(all_args.seed),
+            name=str(all_args.algorithm_name)
+            + "_"
+            + str(all_args.experiment_name)
+            + "_seed"
+            + str(all_args.seed),
             group=all_args.layout_name,
             dir=str(run_dir),
             job_type="training",
@@ -222,6 +233,6 @@ def main(args):
 
 if __name__ == "__main__":
     logger.remove()
-    logger.add(sys.stdout, level="DEBUG")
+    # logger.add(sys.stdout, level="DEBUG")
     # logger.add(sys.stdout, level="INFO")
     main(sys.argv[1:])

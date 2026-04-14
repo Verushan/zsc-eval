@@ -57,8 +57,12 @@ def parse_args(args, parser):
     )
 
     # overcooked evaluation
-    parser.add_argument("--agent0_policy_name", default="", type=str, help="policy name of agent 0")
-    parser.add_argument("--agent1_policy_name", default="", type=str, help="policy name of agent 1")
+    parser.add_argument(
+        "--agent0_policy_name", default="", type=str, help="policy name of agent 0"
+    )
+    parser.add_argument(
+        "--agent1_policy_name", default="", type=str, help="policy name of agent 1"
+    )
     parser.add_argument("--agent_name", type=str, help="name of the agent to evaluate")
     parser.add_argument(
         "--population_size",
@@ -94,14 +98,14 @@ def main(args):
 
     # cuda
     if all_args.cuda and torch.cuda.is_available():
-        print("choose to use gpu...")
+        logger.info("Using GPU")
         device = torch.device("cuda:0")
         torch.set_num_threads(all_args.n_training_threads)
         if all_args.cuda_deterministic:
             torch.backends.cudnn.benchmark = False
             torch.backends.cudnn.deterministic = True
     else:
-        print("choose to use cpu...")
+        logger.info("Using CPU")
         device = torch.device("cpu")
         torch.set_num_threads(all_args.n_training_threads)
 
@@ -130,7 +134,11 @@ def main(args):
             project=all_args.env_name,
             entity=all_args.wandb_name,
             notes=socket.gethostname(),
-            name=str(all_args.algorithm_name) + "_" + str(all_args.experiment_name) + "_seed" + str(all_args.seed),
+            name=str(all_args.algorithm_name)
+            + "_"
+            + str(all_args.experiment_name)
+            + "_seed"
+            + str(all_args.seed),
             group=all_args.layout_name,
             dir=str(run_dir),
             job_type="training",
@@ -197,20 +205,30 @@ def main(args):
 
     # load population
     logger.info(f"population_yaml_path: {all_args.population_yaml_path}")
-    featurize_type = runner.policy.load_population(all_args.population_yaml_path, evaluation=True)
+    featurize_type = runner.policy.load_population(
+        all_args.population_yaml_path, evaluation=True
+    )
 
     # configure mapping from (env_id, agent_id) to policy_name
     num_population_agents = all_args.population_size - 1
-    population_agents = [name for name, _, _, _ in runner.policy.all_policies() if all_args.agent_name not in name]
+    population_agents = [
+        name
+        for name, _, _, _ in runner.policy.all_policies()
+        if all_args.agent_name not in name
+    ]
     # logger.info(population_agents)
     # logger.info(len(population_agents))
-    assert all_args.n_eval_rollout_threads % (num_population_agents * 2) == 0, num_population_agents
+    assert (
+        all_args.n_eval_rollout_threads % (num_population_agents * 2) == 0
+    ), num_population_agents
     assert all_args.eval_episodes % all_args.n_eval_rollout_threads == 0
     map_ea2p = dict()
     for e in range(all_args.n_eval_rollout_threads // 2):
         map_ea2p[(e, 0)] = all_args.agent_name
         map_ea2p[(e, 1)] = population_agents[e % num_population_agents]
-    for e in range(all_args.n_eval_rollout_threads // 2, all_args.n_eval_rollout_threads):
+    for e in range(
+        all_args.n_eval_rollout_threads // 2, all_args.n_eval_rollout_threads
+    ):
         map_ea2p[(e, 0)] = population_agents[e % num_population_agents]
         map_ea2p[(e, 1)] = all_args.agent_name
     runner.policy.set_map_ea2p(map_ea2p)
@@ -220,7 +238,10 @@ def main(args):
     # set featurize_type of eval threaded env
     agent_featurize_type = featurize_type.get(all_args.agent_name, "ppo")
     eval_envs.reset_featurize_type(
-        [(agent_featurize_type, agent_featurize_type) for _ in range(all_args.n_eval_rollout_threads)]
+        [
+            (agent_featurize_type, agent_featurize_type)
+            for _ in range(all_args.n_eval_rollout_threads)
+        ]
     )
 
     runner.evaluate_with_multi_policy()

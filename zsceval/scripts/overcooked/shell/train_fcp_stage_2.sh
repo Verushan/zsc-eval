@@ -40,16 +40,6 @@ elif [[ ${population_size} == 36 ]]; then
     reward_shaping_horizon="1e8"
     num_env_steps="1e8"
     pop="sp"
-else
-    entropy_coefs="0.2 0.05 0.01"
-    entropy_coef_horizons="0 2.5e7 5e7"
-    if [[ "${layout}" == "small_corridor" ]]; then
-        entropy_coefs="0.2 0.05 0.01"
-        entropy_coef_horizons="0 4e7 5e7"
-    fi
-    reward_shaping_horizon="1e3"
-    num_env_steps="1e4"
-    pop="sp"
 fi
 
 num_agents=2
@@ -58,7 +48,7 @@ exp="fcp-S2-s${population_size}"
 
 stage="S2"
 seed_begin=1
-seed_max=5
+seed_max=10
 
 n_training_threads=100
 

@@ -53,7 +53,9 @@ def make_trainer_policy_cls(algorithm_name, use_single_network=False):
     if algorithm_name not in algorithm_dict:
         raise NotImplementedError
 
-    train_algo_module, train_algo_class = algorithm_dict[algorithm_name][0].rsplit(".", 1)
+    train_algo_module, train_algo_class = algorithm_dict[algorithm_name][0].rsplit(
+        ".", 1
+    )
     policy_module, policy_class = algorithm_dict[algorithm_name][1].rsplit(".", 1)
 
     TrainAlgo = getattr(importlib.import_module(train_algo_module), train_algo_class)
@@ -118,10 +120,14 @@ class Runner:
                 if not os.path.exists(self.save_dir):
                     os.makedirs(self.save_dir)
 
-        TrainAlgo, Policy = make_trainer_policy_cls(self.algorithm_name, use_single_network=self.use_single_network)
+        TrainAlgo, Policy = make_trainer_policy_cls(
+            self.algorithm_name, use_single_network=self.use_single_network
+        )
 
         share_observation_space = (
-            self.envs.share_observation_space[0] if self.use_centralized_V else self.envs.observation_space[0]
+            self.envs.share_observation_space[0]
+            if self.use_centralized_V
+            else self.envs.observation_space[0]
         )
 
         # policy network
@@ -146,7 +152,7 @@ class Runner:
         )
         policy_config_path = os.path.join(self.run_dir, "policy_config.pkl")
         pickle.dump(self.policy_config, open(policy_config_path, "wb"))
-        print(f"Pickle dump policy config at {policy_config_path}")
+        logger.info(f"Pickle dump policy config at {policy_config_path}")
         if "store" in self.experiment_name:
             exit()
 
@@ -207,17 +213,25 @@ class Runner:
             torch.save(policy_actor.state_dict(), str(self.save_dir) + "/actor.pt")
             if save_critic:
                 policy_critic = self.trainer.policy.critic
-                torch.save(policy_critic.state_dict(), str(self.save_dir) + "/critic.pt")
+                torch.save(
+                    policy_critic.state_dict(), str(self.save_dir) + "/critic.pt"
+                )
 
     def restore(self):
         if self.use_single_network:
-            policy_model_state_dict = torch.load(str(self.model_dir) + "/model.pt", map_location=self.device)
+            policy_model_state_dict = torch.load(
+                str(self.model_dir) + "/model.pt", map_location=self.device
+            )
             self.policy.model.load_state_dict(policy_model_state_dict)
         else:
-            policy_actor_state_dict = torch.load(str(self.model_dir) + "/actor.pt", map_location=self.device)
+            policy_actor_state_dict = torch.load(
+                str(self.model_dir) + "/actor.pt", map_location=self.device
+            )
             self.policy.actor.load_state_dict(policy_actor_state_dict)
             if not (self.all_args.use_render or self.all_args.use_eval):
-                policy_critic_state_dict = torch.load(str(self.model_dir) + "/critic.pt", map_location=self.device)
+                policy_critic_state_dict = torch.load(
+                    str(self.model_dir) + "/critic.pt", map_location=self.device
+                )
                 self.policy.critic.load_state_dict(policy_critic_state_dict)
 
     def log_train(self, train_infos, total_num_steps):
