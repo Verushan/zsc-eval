@@ -59,8 +59,6 @@ seed_max=5
 path="../../policy_pool"
 
 
-n_training_threads=125
-
 ulimit -n 65536 || ulimit -n 4096
 export POLICY_POOL=${path}
 export EVOLVE_ACTOR_POOL="${HOME}/ZSC/tmp"
@@ -69,9 +67,9 @@ echo "env is ${env}, layout is ${layout}, algo is ${algo}, pop is ${pop}, exp is
 for seed in $(seq ${seed_begin} ${seed_max});
 do
     python train/train_cole.py --env_name ${env} --algorithm_name ${algo} --experiment_name "${exp}" --layout_name ${layout} --num_agents ${num_agents} \
-    --seed ${seed} --n_training_threads 1 --num_mini_batch 1 --episode_length 400 --num_env_steps ${num_env_steps} --reward_shaping_horizon ${reward_shaping_horizon} \
+    --seed ${seed} --n_training_threads $TRAINING_THREADS --num_mini_batch 1 --episode_length 400 --num_env_steps ${num_env_steps} --reward_shaping_horizon ${reward_shaping_horizon} \
     --overcooked_version ${version} \
-    --n_rollout_threads ${n_training_threads} --dummy_batch_size 1 \
+    --n_rollout_threads $TRAINING_THREADS --dummy_batch_size 1 \
     --ppo_epoch 15 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
     --stage 2 \
     --save_interval 25 --log_interval 1 --use_eval --eval_interval 20 --n_eval_rollout_threads $((population_size * 2 + 1)) --eval_episodes 5 \

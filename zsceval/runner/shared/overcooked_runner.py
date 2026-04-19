@@ -904,16 +904,13 @@ class OvercookedRunner(Runner):
             # save model
             if episode < 50:
                 if episode % 2 == 0:
-                    self.trainer.save(total_num_steps, save_dir=self.save_dir)
-                    # self.trainer.save(episode, save_dir=self.save_dir)
+                    self.trainer.save(episode, save_dir=self.save_dir)
             elif episode < 100:
                 if episode % 5 == 0:
-                    self.trainer.save(total_num_steps, save_dir=self.save_dir)
-                    # self.trainer.save(episode, save_dir=self.save_dir)
+                    self.trainer.save(episode, save_dir=self.save_dir)
             else:
                 if episode % self.save_interval == 0 or episode == episodes - 1:
-                    self.trainer.save(total_num_steps, save_dir=self.save_dir)
-                    # self.trainer.save(episode, save_dir=self.save_dir)
+                    self.trainer.save(episode, save_dir=self.save_dir)
 
             self.trainer.update_best_r(
                 {
