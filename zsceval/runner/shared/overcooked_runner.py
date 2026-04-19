@@ -322,12 +322,6 @@ class OvercookedRunner(Runner):
                 self.policy.critic.load_state_dict(policy_critic_state_dict)
 
     def save(self, step, save_critic: bool = False):
-        artifact = wandb.Artifact(
-            name=self.algorithm_name,
-            type="model",
-            description=f"Model checkpoint at step {step}",
-        )
-
         model_file_name = f"model_periodic_{step}.pt"
         critic_file_name = f"critic_periodic_{step}.pt"
         actor_file_name = f"actor_periodic_{step}.pt"
@@ -339,21 +333,22 @@ class OvercookedRunner(Runner):
         if self.use_single_network:
             policy_model = self.trainer.policy.model
             torch.save(policy_model.state_dict(), model_path)
-            artifact.add_file(model_path, name=model_file_name)
         else:
             policy_actor = self.trainer.policy.actor
-
             torch.save(policy_actor.state_dict(), actor_path)
-            artifact.add_file(actor_path, name=actor_file_name)
 
             if save_critic:
                 policy_critic = self.trainer.policy.critic
-
                 torch.save(policy_critic.state_dict(), critic_path)
-                artifact.add_file(actor_path, name=actor_file_name)
 
         if self.use_wandb:
-            wandb.log_artifact(artifact)
+            if self.use_single_network:
+                wandb.save(model_path, base_path=str(self.save_dir))
+            else:
+                wandb.save(actor_path, base_path=str(self.save_dir))
+
+                if save_critic:
+                    wandb.save(critic_path, base_path=str(self.save_dir))
 
     @torch.no_grad()
     def eval(self, total_num_steps):
