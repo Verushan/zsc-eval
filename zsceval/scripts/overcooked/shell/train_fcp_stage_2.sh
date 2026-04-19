@@ -11,10 +11,10 @@ else
 fi
 
 if [[ ${population_size} == 12 ]]; then
-    num_env_steps="10000"
-    entropy_coef_horizons="0 5000 10000"
+    num_env_steps="5e7"
+    reward_shaping_horizon="3e7"
+    entropy_coef_horizons="0 3e7 5e7"
     entropy_coefs="0.2 0.05 0.01"
-    reward_shaping_horizon="7500"
     pop="sp"
 elif [[ ${population_size} == 24 ]]; then
     entropy_coefs="0.2 0.05 0.01"
@@ -52,7 +52,7 @@ echo "env is ${env}, layout is ${layout}, algo is ${algo}, pop is ${pop}, exp is
 for seed in $(seq ${seed_begin} ${seed_max});
 do
     python train/train_adaptive.py --env_name ${env} --algorithm_name ${algo} --experiment_name "${exp}" --layout_name ${layout} --num_agents ${num_agents} \
-    --seed ${seed} --n_training_threads $TRAINING_THREADS --num_mini_batch 1 --episode_length 10 --num_env_steps ${num_env_steps} --reward_shaping_horizon ${reward_shaping_horizon} \
+    --seed ${seed} --n_training_threads $TRAINING_THREADS --num_mini_batch 1 --episode_length 5 --num_env_steps ${num_env_steps} --reward_shaping_horizon ${reward_shaping_horizon} \
     --overcooked_version ${version} \
     --n_rollout_threads $ROLLOUT_THREADS --dummy_batch_size 2 \
     --ppo_epoch 15 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \

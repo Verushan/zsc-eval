@@ -7,6 +7,7 @@ from typing import Any, Dict
 import numpy as np
 import torch
 from loguru import logger
+import wandb
 
 from zsceval.algorithms.population.policy_pool import PolicyPool
 from zsceval.algorithms.population.utils import _t2n
@@ -26,7 +27,9 @@ class TrainerPool:
         self.policy_pool = policy_pool
         self.trainer_pool = {}
         self.trainer_total_num_steps = defaultdict(int)
-        self.use_policy_in_env = dict(args._get_kwargs()).get("use_policy_in_env", False)
+        self.use_policy_in_env = dict(args._get_kwargs()).get(
+            "use_policy_in_env", False
+        )
         self.__loaded_population = False
         self.__initialized = False
 
@@ -35,7 +38,11 @@ class TrainerPool:
         return self.policy_pool.policy_config[trainer_name]
 
     def policy_id(self, trainer_name):
-        return int(self.policy_pool.policy_info[trainer_name][1]["id"] * self.policy_pool.num_policies - 1)
+        return int(
+            self.policy_pool.policy_info[trainer_name][1]["id"]
+            * self.policy_pool.num_policies
+            - 1
+        )
 
     def init_population(self):
         self.on_training = []
@@ -63,7 +70,12 @@ class TrainerPool:
 
         # train info would update when a trainer performs training
         self.train_infos = {}
-        self.train_infos.update({f"{trainer_name}-total_num_steps": 0 for trainer_name in self.trainer_pool.keys()})
+        self.train_infos.update(
+            {
+                f"{trainer_name}-total_num_steps": 0
+                for trainer_name in self.trainer_pool.keys()
+            }
+        )
 
         self.__loaded_population = True
 
@@ -102,7 +114,9 @@ class TrainerPool:
         for trainer_name, trainer in self.trainer_pool.items():
             # set n_rollout_threads as control_agent_count[trainer_name] and num_agents as 1
             if self.control_agent_count[trainer_name] > 0:
-                policy_args, obs_space, share_obs_space, act_space = self.policy_config(trainer_name)
+                policy_args, obs_space, share_obs_space, act_space = self.policy_config(
+                    trainer_name
+                )
                 self.buffer_pool[trainer_name] = SharedReplayBuffer(
                     policy_args,
                     1,
@@ -126,7 +140,9 @@ class TrainerPool:
 
     def skip(self, trainer_name):
         # produce actions in parallel envs, skip this trainer
-        return (self.use_policy_in_env and trainer_name not in self.on_training) or (trainer_name.startswith("script:"))
+        return (self.use_policy_in_env and trainer_name not in self.on_training) or (
+            trainer_name.startswith("script:")
+        )
 
     def init_first_step(
         self,
@@ -138,13 +154,19 @@ class TrainerPool:
         for trainer_name in self.active_trainers:
             # extract corresponding (e, a) and add num_agent=1 dimension
             obs_lst = np.expand_dims(self.extract_elements(trainer_name, obs), axis=1)
-            share_obs_lst = np.expand_dims(self.extract_elements(trainer_name, share_obs), axis=1)
+            share_obs_lst = np.expand_dims(
+                self.extract_elements(trainer_name, share_obs), axis=1
+            )
             self.buffer_pool[trainer_name].share_obs[0] = share_obs_lst.copy()
             self.buffer_pool[trainer_name].obs[0] = obs_lst.copy()
 
             if available_actions is not None:
-                available_actions_lst = np.expand_dims(self.extract_elements(trainer_name, available_actions), axis=1)
-                self.buffer_pool[trainer_name].available_actions[0] = available_actions_lst.copy()
+                available_actions_lst = np.expand_dims(
+                    self.extract_elements(trainer_name, available_actions), axis=1
+                )
+                self.buffer_pool[trainer_name].available_actions[
+                    0
+                ] = available_actions_lst.copy()
         self._step = 0
 
     def reward_shaping_steps(self):
@@ -152,7 +174,8 @@ class TrainerPool:
         reward_shaping_steps = []
         for e in range(self.n_rollout_threads):
             train_tot_num_steps = [
-                self.trainer_total_num_steps[self.map_ea2t[(e, a)]] * int(self.map_ea2t[(e, a)] in self.on_training)
+                self.trainer_total_num_steps[self.map_ea2t[(e, a)]]
+                * int(self.map_ea2t[(e, a)] in self.on_training)
                 for a in range(self.num_agents)
             ]
             reward_shaping_steps.append(max(train_tot_num_steps))
@@ -165,11 +188,17 @@ class TrainerPool:
     @torch.no_grad()
     def step(self, step):
         assert self.__initialized
-        actions = np.full((self.n_rollout_threads, self.num_agents), fill_value=None).tolist()
+        actions = np.full(
+            (self.n_rollout_threads, self.num_agents), fill_value=None
+        ).tolist()
         self.step_data = dict()
         for trainer_name in self.active_trainers:
-            self.trainer_total_num_steps[trainer_name] += self.control_agent_count[trainer_name]
-            self.train_infos[f"{trainer_name}-total_num_steps"] = self.trainer_total_num_steps[trainer_name]
+            self.trainer_total_num_steps[trainer_name] += self.control_agent_count[
+                trainer_name
+            ]
+            self.train_infos[f"{trainer_name}-total_num_steps"] = (
+                self.trainer_total_num_steps[trainer_name]
+            )
 
             if self.skip(trainer_name):
                 continue
@@ -191,14 +220,20 @@ class TrainerPool:
                 np.concatenate(buffer.rnn_states[step]),
                 np.concatenate(buffer.rnn_states_critic[step]),
                 np.concatenate(buffer.masks[step]),
-                np.concatenate(buffer.available_actions[step]) if buffer.available_actions is not None else None,
+                (
+                    np.concatenate(buffer.available_actions[step])
+                    if buffer.available_actions is not None
+                    else None
+                ),
             )
 
             value = np.expand_dims(np.array(_t2n(value)), axis=1)
             action = np.expand_dims(np.array(_t2n(action)), axis=1)
             action_log_prob = np.expand_dims(np.array(_t2n(action_log_prob)), axis=1)
             rnn_states = np.expand_dims(np.array(_t2n(rnn_states)), axis=1)
-            rnn_states_critic = np.expand_dims(np.array(_t2n(rnn_states_critic)), axis=1)
+            rnn_states_critic = np.expand_dims(
+                np.array(_t2n(rnn_states_critic)), axis=1
+            )
 
             self.step_data[trainer_name] = (
                 value,
@@ -245,9 +280,15 @@ class TrainerPool:
 
             # (control_agent_count[trainer_name], 1, *)
             obs_lst = np.expand_dims(self.extract_elements(trainer_name, obs), axis=1)
-            share_obs_lst = np.expand_dims(self.extract_elements(trainer_name, share_obs), axis=1)
-            rewards_lst = np.expand_dims(self.extract_elements(trainer_name, rewards), axis=1)
-            dones_lst = np.expand_dims(self.extract_elements(trainer_name, dones), axis=1)
+            share_obs_lst = np.expand_dims(
+                self.extract_elements(trainer_name, share_obs), axis=1
+            )
+            rewards_lst = np.expand_dims(
+                self.extract_elements(trainer_name, rewards), axis=1
+            )
+            dones_lst = np.expand_dims(
+                self.extract_elements(trainer_name, dones), axis=1
+            )
 
             rnn_states[dones_lst == True] = np.zeros(
                 ((dones_lst == True).sum(), buffer.recurrent_N, buffer.hidden_size),
@@ -257,20 +298,30 @@ class TrainerPool:
                 ((dones_lst == True).sum(), *buffer.rnn_states_critic.shape[3:]),
                 dtype=np.float32,
             )
-            masks = np.ones((self.control_agent_count[trainer_name], 1, 1), dtype=np.float32)
-            masks[dones_lst == True] = np.zeros(((dones_lst == True).sum(), 1), dtype=np.float32)
+            masks = np.ones(
+                (self.control_agent_count[trainer_name], 1, 1), dtype=np.float32
+            )
+            masks[dones_lst == True] = np.zeros(
+                ((dones_lst == True).sum(), 1), dtype=np.float32
+            )
 
             bad_masks_lst = active_masks_lst = None
             if bad_masks is not None:
-                bad_masks_lst = np.expand_dims(self.extract_elements(trainer_name, bad_masks), axis=1)
+                bad_masks_lst = np.expand_dims(
+                    self.extract_elements(trainer_name, bad_masks), axis=1
+                )
             if active_masks is not None:
-                active_masks_lst = np.expand_dims(self.extract_elements(trainer_name, active_masks), axis=1)
+                active_masks_lst = np.expand_dims(
+                    self.extract_elements(trainer_name, active_masks), axis=1
+                )
 
             if self.all_args.use_task_v_out:
                 value = value[:, :, self.policy_id(trainer_name)][:, :, np.newaxis]
 
             if available_actions is not None:
-                available_actions_lst = np.expand_dims(self.extract_elements(trainer_name, available_actions), axis=1)
+                available_actions_lst = np.expand_dims(
+                    self.extract_elements(trainer_name, available_actions), axis=1
+                )
 
             buffer.insert(
                 share_obs_lst,
@@ -299,7 +350,9 @@ class TrainerPool:
                         dtype=np.int32,
                     )
                     for i, (e, a) in enumerate(self.control_agents[trainer_name]):
-                        buffer.other_policy_id[:, i, :, :] = self.policy_id(self.map_ea2t[(e, 1 - a)])
+                        buffer.other_policy_id[:, i, :, :] = self.policy_id(
+                            self.map_ea2t[(e, 1 - a)]
+                        )
 
         self.step_data = None
 
@@ -312,9 +365,15 @@ class TrainerPool:
             if trainer_name in self.on_training:
                 advantages = trainer.compute_advantages(buffer)
                 for i, (e, a) in enumerate(self.control_agents[trainer_name]):
-                    all_adv[(tuple(self.map_ea2t[(e, a_i)] for a_i in range(self.num_agents)), a)].append(
-                        advantages[:, i].mean()
-                    )
+                    all_adv[
+                        (
+                            tuple(
+                                self.map_ea2t[(e, a_i)]
+                                for a_i in range(self.num_agents)
+                            ),
+                            a,
+                        )
+                    ].append(advantages[:, i].mean())
         return all_adv
 
     def adapt_entropy_coef(self, num_steps: int):
@@ -338,20 +397,32 @@ class TrainerPool:
                 )
                 next_values = np.expand_dims(np.array(_t2n(next_values)), axis=1)
                 if self.all_args.use_task_v_out:
-                    next_values = next_values[:, :, self.policy_id(trainer_name)][:, :, np.newaxis]
+                    next_values = next_values[:, :, self.policy_id(trainer_name)][
+                        :, :, np.newaxis
+                    ]
                 buffer.compute_returns(next_values, trainer.value_normalizer)
 
                 # train
                 trainer.prep_training()
                 train_info = trainer.train(
                     buffer,
-                    turn_on=(self.trainer_total_num_steps[trainer_name] >= self.all_args.critic_warmup_horizon),
+                    turn_on=(
+                        self.trainer_total_num_steps[trainer_name]
+                        >= self.all_args.critic_warmup_horizon
+                    ),
                     actor_zero_grad=kwargs.get("actor_zero_grad", True),
                     critic_zero_grad=kwargs.get("critic_zero_grad", True),
                 )
-                self.train_infos.update({f"{trainer_name}-{k}": v for k, v in train_info.items()})
                 self.train_infos.update(
-                    {f"{trainer_name}-average_episode_rewards": np.mean(buffer.rewards) * buffer.episode_length}
+                    {f"{trainer_name}-{k}": v for k, v in train_info.items()}
+                )
+                self.train_infos.update(
+                    {
+                        f"{trainer_name}-average_episode_rewards": np.mean(
+                            buffer.rewards
+                        )
+                        * buffer.episode_length
+                    }
                 )
 
             # place first step observation of next episode
@@ -396,9 +467,21 @@ class TrainerPool:
             trainer = self.trainer_pool[trainer_name]
             if not os.path.exists(str(save_dir) + f"/{trainer_name}"):
                 os.makedirs(str(save_dir) + f"/{trainer_name}")
-            trainer_step = trainer_steps[trainer_name] if trainer_name in trainer_steps else 0
-            if getattr(self.all_args, "data_parallel", False):
+            trainer_step = (
+                trainer_steps[trainer_name] if trainer_name in trainer_steps else 0
+            )
 
+            model_file_name = os.path.join(
+                str(save_dir), trainer_name, f"model_periodic_{trainer_step}.pt"
+            )
+            actor_file_name = os.path.join(
+                str(save_dir), trainer_name, f"actor_periodic_{trainer_step}.pt"
+            )
+            critic_file_name = os.path.join(
+                str(save_dir), trainer_name, f"critic_periodic_{trainer_step}.pt"
+            )
+
+            if getattr(self.all_args, "data_parallel", False):
                 def get_new_state_dict(state_dict: OrderedDict):
                     new_state_dict = OrderedDict()
                     for k, v in state_dict.items():
@@ -409,37 +492,47 @@ class TrainerPool:
                 if self.policy_config(trainer_name)[0].use_single_network:
                     policy_model = trainer.policy.model
                     torch.save(
-                        get_new_state_dict(policy_model.state_dict()),
-                        str(save_dir) + f"/{trainer_name}/model_periodic_{trainer_step}.pt",
+                        get_new_state_dict(policy_model.state_dict()), model_file_name
                     )
                 else:
                     policy_actor = trainer.policy.actor
                     torch.save(
-                        get_new_state_dict(policy_actor.state_dict()),
-                        str(save_dir) + f"/{trainer_name}/actor_periodic_{trainer_step}.pt",
+                        get_new_state_dict(policy_actor.state_dict()), actor_file_name
                     )
                     if save_critic:
                         policy_critic = trainer.policy.critic
                         torch.save(
                             get_new_state_dict(policy_critic.state_dict()),
-                            str(save_dir) + f"/{trainer_name}/critic_periodic_{trainer_step}.pt",
+                            critic_file_name,
                         )
+
+                if self.all_args.use_wandb:
+                    if self.policy_config(trainer_name)[0].use_single_network:
+                        wandb.save(model_file_name, base_path=str(save_dir))
+                    else:
+                        wandb.save(actor_file_name, base_path=str(save_dir))
+
+                        if save_critic:
+                            wandb.save(critic_file_name, base_path=str(save_dir))
             else:
                 if self.policy_config(trainer_name)[0].use_single_network:
                     policy_model = trainer.policy.model
-                    torch.save(
-                        policy_model.state_dict(),
-                        str(save_dir) + f"/{trainer_name}/model_periodic_{trainer_step}.pt",
-                    )
+                    torch.save(policy_model.state_dict(), model_file_name)
                 else:
                     policy_actor = trainer.policy.actor
-                    torch.save(
-                        policy_actor.state_dict(),
-                        str(save_dir) + f"/{trainer_name}/actor_periodic_{trainer_step}.pt",
-                    )
+                    torch.save(policy_actor.state_dict(), actor_file_name)
+
                     if save_critic:
                         policy_critic = trainer.policy.critic
-                        torch.save(
-                            policy_critic.state_dict(),
-                            str(save_dir) + f"/{trainer_name}/critic_periodic_{trainer_step}.pt",
-                        )
+                        torch.save(policy_critic.state_dict(), critic_file_name)
+
+                if self.all_args.use_wandb:
+                    if self.policy_config(trainer_name)[0].use_single_network:
+                        wandb.save(model_file_name, base_path=str(save_dir))
+                    else:
+                        wandb.save(actor_file_name, base_path=str(save_dir))
+
+                        if save_critic:
+                            wandb.save(critic_file_name, base_path=str(save_dir))
+
+
