@@ -57,6 +57,7 @@ do
     --n_rollout_threads $ROLLOUT_THREADS --dummy_batch_size 2 \
     --ppo_epoch 15 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
     --stage 2 \
+    --data_parallel \
     --save_interval 1 --log_interval 1 --use_eval --eval_interval 20 --n_eval_rollout_threads $((population_size * 2)) --eval_episodes 5 \
     --population_yaml_path ${POLICY_POOL}/${layout}/fcp/s2/train-s${population_size}-${pop}-${seed}.yml \
     --population_size ${population_size} --adaptive_agent_name fcp_adaptive --use_agent_policy_id \
