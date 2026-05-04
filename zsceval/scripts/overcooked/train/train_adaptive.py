@@ -4,7 +4,7 @@ import socket
 import sys
 from argparse import Namespace
 from pathlib import Path
-from pprint import pformat, pprint
+from pprint import pformat
 
 import setproctitle
 import torch
@@ -353,7 +353,7 @@ def main(args):
 
 if __name__ == "__main__":
     logger.remove()
-    # logger.add(sys.stdout, level="TRACE")
-    # logger.add(sys.stdout, level="DEBUG")
+    logger.add(sys.stdout, level="TRACE")
+    logger.add(sys.stdout, level="DEBUG")
     logger.add(sys.stdout, level="INFO")
     main(sys.argv[1:])
