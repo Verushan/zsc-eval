@@ -1036,6 +1036,7 @@ class OvercookedRunner(Runner):
             self.eval_interval /= self.population_size
         else:
             # Stage 2: train an agent against population with prioritized sampling
+            logger.info("Training an agent against population with prioritized sampling")
             agent_name = self.trainer.agent_name
             assert self.use_eval
             assert (

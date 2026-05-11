@@ -9,10 +9,10 @@ else
     version="new"
 fi
 
-if [[ ${population_size} == 12 ]]; then
-    num_env_steps="5e7"
-    reward_shaping_horizon="3e7"
-    entropy_coef_horizons="0 3e7 5e7"
+if [[ ${population_size} == 5 ]]; then
+    num_env_steps="1e5"
+    reward_shaping_horizon="1e3"
+    entropy_coef_horizons="0 1e3 1e4"
     entropy_coefs="0.2 0.05 0.01"
     pop="sp"
 elif [[ ${population_size} == 24 ]]; then
@@ -53,12 +53,13 @@ for seed in $(seq ${seed_begin} ${seed_max}); do
         --seed ${seed} --n_training_threads $TRAINING_THREADS --num_mini_batch 1 --episode_length 5 --num_env_steps ${num_env_steps} --reward_shaping_horizon ${reward_shaping_horizon} \
         --overcooked_version ${version} \
         --n_rollout_threads $ROLLOUT_THREADS --dummy_batch_size 2 \
-        --ppo_epoch 15 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
+        --ppo_epoch 1 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
         --stage 2 \
+        --mep_use_prioritized_sampling \
         --data_parallel \
         --save_interval 1 --log_interval 1 --use_eval --eval_interval 20 --n_eval_rollout_threads $((population_size * 2)) --eval_episodes 5 \
         --population_yaml_path ${POLICY_POOL}/${layout}/fcp/s2/train-s${population_size}-${pop}-${seed}.yml \
-        --population_size ${population_size} --adaptive_agent_name fcp_adaptive --use_agent_policy_id \
+        --population_size $((population_size * 3)) --adaptive_agent_name fcp_adaptive --use_agent_policy_id \
         --use_proper_time_limits \
         --wandb_name $WANDB_ENTITY
 done

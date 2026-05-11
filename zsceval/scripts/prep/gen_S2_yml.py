@@ -30,7 +30,7 @@ S1_POP_EXPS = {
 # TOTAL_SIZE_LIST = [10, 5]
 # POP_SIZE_LIST = [8, 4]
 TOTAL_SIZE_LIST = [5]
-POP_SIZE_LIST = [4]
+POP_SIZE_LIST = [5]
 
 # GRF
 # TOTAL_SIZE_LIST = [5]
@@ -86,7 +86,7 @@ if __name__ == "__main__":
                     layout,
                     args.alg,
                     "s2",
-                    f"train-s{POP_SIZE*3}-{exp}-{n_r+1}.yml",
+                    f"train-s{POP_SIZE}-{exp}-{n_r+1}.yml",
                 )
                 logger.info(f"Writing S2 yml for {exp} seed {n_r} in {yml_path}")
                 yml = open(
