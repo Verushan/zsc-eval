@@ -23,6 +23,7 @@ from zsceval.envs.overcooked_new.Overcooked_Env import Overcooked as Overcooked_
 from zsceval.envs.wrappers.env_policy import PartialPolicyEnv
 from zsceval.overcooked_config import get_overcooked_args
 from zsceval.utils.train_util import get_base_run_dir, setup_seed
+import multiprocessing as mp
 
 
 def make_train_env(all_args, run_dir):
@@ -352,8 +353,11 @@ def main(args):
 
 
 if __name__ == "__main__":
+    mp.set_start_method("spawn", force=True)
+    print("Multiprocessing start method successfully set to SPAWN")
+
     logger.remove()
-    logger.add(sys.stdout, level="TRACE")
-    logger.add(sys.stdout, level="DEBUG")
+    # logger.add(sys.stdout, level="TRACE")
+    # logger.add(sys.stdout, level="DEBUG")
     logger.add(sys.stdout, level="INFO")
     main(sys.argv[1:])
