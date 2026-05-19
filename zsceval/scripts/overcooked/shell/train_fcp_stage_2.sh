@@ -10,9 +10,9 @@ else
 fi
 
 if [[ ${population_size} == 5 ]]; then
-    num_env_steps="1e5"
-    reward_shaping_horizon="1e3"
-    entropy_coef_horizons="0 1e3 1e4"
+    num_env_steps="1e6"
+    reward_shaping_horizon="1e4"
+    entropy_coef_horizons="0 1e3 1e5"
     entropy_coefs="0.2 0.05 0.01"
     pop="sp"
 elif [[ ${population_size} == 24 ]]; then
@@ -43,20 +43,20 @@ exp="fcp-S2-s${population_size}"
 
 stage="S2"
 seed_begin=1
-seed_max=2
+seed_max=5
 
 ulimit -n 65536 || ulimit -n 4096
 
 echo "env is ${env}, layout is ${layout}, algo is ${algo}, pop is ${pop}, exp is ${exp}, seed from ${seed_begin} to ${seed_max}, stage is ${stage}"
 for seed in $(seq ${seed_begin} ${seed_max}); do
     python train/train_adaptive.py --env_name ${env} --algorithm_name ${algo} --experiment_name "${exp}" --layout_name ${layout} --num_agents ${num_agents} \
-        --seed ${seed} --n_training_threads $TRAINING_THREADS --num_mini_batch 1 --episode_length 5 --num_env_steps ${num_env_steps} --reward_shaping_horizon ${reward_shaping_horizon} \
+        --seed ${seed} --n_training_threads $TRAINING_THREADS --num_mini_batch 1 --episode_length 400 --num_env_steps ${num_env_steps} --reward_shaping_horizon ${reward_shaping_horizon} \
         --overcooked_version ${version} \
         --n_rollout_threads $ROLLOUT_THREADS --dummy_batch_size 2 \
-        --ppo_epoch 50 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
+        --ppo_epoch 15 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
         --stage 2 \
         --data_parallel \
-        --save_interval 1 --log_interval 1 --use_eval --eval_interval 20 --n_eval_rollout_threads $((population_size * 2)) --eval_episodes 5 \
+        --save_interval 25 --log_interval 1 --use_eval --eval_interval 20 --n_eval_rollout_threads $((population_size * 2)) --eval_episodes 5 \
         --population_yaml_path ${POLICY_POOL}/${layout}/fcp/s2/train-s${population_size}-${pop}-${seed}.yml \
         --population_size $((population_size * 3)) --adaptive_agent_name fcp_adaptive --use_agent_policy_id \
         --use_proper_time_limits \

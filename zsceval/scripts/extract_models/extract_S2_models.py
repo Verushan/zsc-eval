@@ -6,7 +6,7 @@ import numpy as np
 import wandb
 
 wandb_name = os.getenv("WANDB_ENTITY")
-POLICY_POOL_PATH = "../policy_pool"
+POLICY_POOL_PATH = os.environ.get("POLICY_POOL")
 
 from loguru import logger
 
@@ -151,6 +151,7 @@ if __name__ == "__main__":
     assert all([algo in ["traj", "mep", "fcp", "cole", "hsp"] for algo in algorithms])
     ALG_EXPS = {
         "fcp": [
+            "fcp-S2-s5",
             "fcp-S2-s24",
             "fcp-S2-s36",
         ],
