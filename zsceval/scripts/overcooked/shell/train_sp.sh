@@ -15,8 +15,8 @@ if [[ "${layout}" == "small_corridor" ]]; then
     entropy_coef_horizons="0 8e6 1e7"
 fi
 
-reward_shaping_horizon="1e3"
-num_env_steps="1e4"
+reward_shaping_horizon="1e8"
+num_env_steps="1e7"
 
 num_agents=2
 algo="mappo"
@@ -35,6 +35,6 @@ do
     --ppo_epoch 15 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
     --cnn_layers_params "32,3,1,1 64,3,1,1 32,3,1,1" --use_recurrent_policy \
     --use_proper_time_limits \
-    --save_interval 5 --log_interval 10 --use_eval --eval_interval 20 --n_eval_rollout_threads 10 \
+    --save_interval 25 --log_interval 10 --use_eval --eval_interval 20 --n_eval_rollout_threads 10 \
     --wandb_name $WANDB_ENTITY
 done

@@ -1,4 +1,4 @@
-layouts="random0"
+layouts=$1
 for layout in ${layouts};
 do
     echo ${layout}

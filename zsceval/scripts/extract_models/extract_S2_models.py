@@ -151,7 +151,7 @@ if __name__ == "__main__":
     assert all([algo in ["traj", "mep", "fcp", "cole", "hsp"] for algo in algorithms])
     ALG_EXPS = {
         "fcp": [
-            "fcp-S2-s5",
+            "fcp-S2-s12",
             "fcp-S2-s24",
             "fcp-S2-s36",
         ],
