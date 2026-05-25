@@ -34,7 +34,7 @@ export POLICY_POOL=${path}
 
 echo "env is ${env}, layout is ${layout}, algo is ${algo}, exp is ${exp}, seed is ${seed}, stage is ${stage}"
 python train/train_mep.py --env_name ${env} --algorithm_name ${algo} --experiment_name "${exp}" --layout_name ${layout} --num_agents ${num_agents} \
---seed ${seed} --n_training_threads $TRAINING_THREADS --num_mini_batch 1 --episode_length 400 --num_env_steps ${num_env_steps} --reward_shaping_horizon ${reward_shaping_horizon} \
+--seed ${seed} --n_training_threads $TRAINING_THREADS  --episode_length 400 --num_env_steps ${num_env_steps} --reward_shaping_horizon ${reward_shaping_horizon} \
 --train_env_batch ${train_batch} --n_rollout_threads ${train_batch} --dummy_batch_size 1 \
 --overcooked_version ${version} \
 --ppo_epoch 15 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \

@@ -83,8 +83,9 @@ def parse_args(args, parser: argparse.ArgumentParser):
     )
 
     parser.add_argument("--use_task_v_out", default=False, action="store_true")
-    # all_args = parser.parse_known_args(args)[0]
+
     all_args = parser.parse_args(args)
+
     from zsceval.overcooked_config import OLD_LAYOUTS
 
     if all_args.layout_name in OLD_LAYOUTS:
@@ -233,6 +234,6 @@ def main(args):
 
 if __name__ == "__main__":
     logger.remove()
-    # logger.add(sys.stdout, level="DEBUG")
-    # logger.add(sys.stdout, level="INFO")
+    logger.add(sys.stdout, level="INFO")
+    logger.add(sys.stdout, level="DEBUG")
     main(sys.argv[1:])

@@ -25,7 +25,7 @@ export LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libffi.so.7
 
 echo "env is ${env}, scenario is ${scenario}, algo is ${algo}, exp is ${exp}, seed ${seed}"
 python train/train_traj.py --env_name ${env} --algorithm_name ${algo} --experiment_name "${exp}" --scenario_name ${scenario} --num_agents ${num_agents} \
---seed 1 --n_training_threads 1 --num_mini_batch 1 --episode_length 200 --num_env_steps ${num_env_steps} --train_env_batch ${train_batch} --n_rollout_threads ${train_batch} --eval_stochastic --dummy_batch_size 1 \
+--seed 1 --n_training_threads 1  --episode_length 200 --num_env_steps ${num_env_steps} --train_env_batch ${train_batch} --n_rollout_threads ${train_batch} --eval_stochastic --dummy_batch_size 1 \
 --ppo_epoch 15 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
 --representation "simple115v2_custom" --rewards "scoring,checkpoints" --reward_config '{"score": 5.0, "checkpoints": 1.0}' \
 --use_proper_time_limits \

@@ -15,8 +15,6 @@ reward_shaping_horizon="1e8"
 num_env_steps="1e7"
 episode_length=400
 ppo_epoch=15
-dummy_batch_size=2
-num_mini_batch=4
 
 num_agents=2
 seed_begin=1
@@ -29,11 +27,11 @@ for seed in $(seq ${seed_begin} ${seed_max});
 do
     echo "seed is ${seed}:"
     python train/train_sp.py --env_name ${env} --algorithm_name ${algo} --experiment_name ${exp} --layout_name ${layout} --num_agents ${num_agents} \
-    --seed ${seed} --n_training_threads $TRAINING_THREADS --n_rollout_threads $ROLLOUT_THREADS --dummy_batch_size ${dummy_batch_size} \
-    --num_mini_batch ${num_mini_batch} --episode_length ${episode_length} --num_env_steps ${num_env_steps} \
+    --seed ${seed} --n_training_threads $TRAINING_THREADS --n_rollout_threads $ROLLOUT_THREADS \
+    --episode_length ${episode_length} --num_env_steps ${num_env_steps} \
     --reward_shaping_horizon ${reward_shaping_horizon} --overcooked_version ${version} \
-    --ppo_epoch 15 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
-    --save_interval 25 --log_interval 10 --use_eval --eval_interval 20 --n_eval_rollout_threads 10 \
+    --ppo_epoch ${ppo_epoch} --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
+    --save_interval 25 --log_interval 10 --use_eval --eval_interval 20  \
     --cnn_layers_params "32,3,1,1 64,3,1,1 32,3,1,1" --use_recurrent_policy \
     --use_proper_time_limits \
     --use_wandb
@@ -47,11 +45,11 @@ for seed in $(seq ${seed_begin} ${seed_max});
 do
     echo "seed is ${seed}:"
     python train/train_sp.py --env_name ${env} --algorithm_name ${algo} --experiment_name ${exp} --layout_name ${layout} --num_agents ${num_agents} \
-    --seed ${seed} --n_training_threads $TRAINING_THREADS --n_rollout_threads $ROLLOUT_THREADS --dummy_batch_size ${dummy_batch_size} \
-    --num_mini_batch ${num_mini_batch} --episode_length ${episode_length} --num_env_steps ${num_env_steps} \
+    --seed ${seed} --n_training_threads $TRAINING_THREADS --n_rollout_threads $ROLLOUT_THREADS \
+     --episode_length ${episode_length} --num_env_steps ${num_env_steps} \
     --reward_shaping_horizon ${reward_shaping_horizon} --overcooked_version ${version} \
-    --ppo_epoch 15 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
-    --save_interval 25 --log_interval 10 --use_eval --eval_interval 20 --n_eval_rollout_threads 10 \
+    --ppo_epoch ${ppo_epoch} --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
+    --save_interval 25 --log_interval 10 --use_eval --eval_interval 20  \
     --cnn_layers_params "32,3,1,1 64,3,1,1 32,3,1,1" --use_recurrent_policy \
     --use_proper_time_limits \
     --use_wandb

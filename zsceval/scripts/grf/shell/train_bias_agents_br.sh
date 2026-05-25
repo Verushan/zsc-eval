@@ -36,7 +36,7 @@ do
     echo br to $number bias agents
     population_size=$((number))
     python train/train_adaptive.py --env_name ${env} --algorithm_name ${algo} --experiment_name ${exp} --scenario_name ${scenario} --num_agents ${num_agents} \
-    --seed ${i} --n_training_threads 1 --n_rollout_threads ${train_batch} --eval_stochastic --dummy_batch_size 2 --num_mini_batch 1 --episode_length 200 --num_env_steps ${num_env_steps} \
+    --seed ${i} --n_training_threads 1 --n_rollout_threads ${train_batch} --eval_stochastic --dummy_batch_size 2  --episode_length 200 --num_env_steps ${num_env_steps} \
     --ppo_epoch 15 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
     --representation "simple115v2_custom" --rewards "scoring,checkpoints" --reward_config '{"score": 5.0, "checkpoints": 1.0}' \
     --use_proper_time_limits \

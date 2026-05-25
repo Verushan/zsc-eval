@@ -1,18 +1,41 @@
 import argparse
 import getpass
+from loguru import logger
+
 
 def scientific_notation(value):
     return int(float(value))
+
+
+def calculate_dummy_chunk_length(max_target=10):
+    """
+    Finds the largest factor of num_rollout_threads that is less than or
+    equal to max_target, ensuring the 'nenvs % dummy_batch_size == 0'
+    assertion always passes.
+    """
+    pre_parser = argparse.ArgumentParser(add_help=False)
+    pre_parser.add_argument("--n_rollout_threads", type=int, default=32)
+
+    pre_args, _ = pre_parser.parse_known_args()
+
+    for length in range(max_target, 0, -1):
+        if pre_args.n_rollout_threads % length == 0:
+            logger.info(f"Using dummy batch size of {length}")
+            return length
+
+    logger.info(f"Using dummy batch size of 1")
+    return 1
+
 
 def get_config() -> argparse.ArgumentParser:
     """
     The configuration parser for common hyperparameters of all environment.
     Please reach each `scripts/train/<env>_runner.py` file to find private hyperparameters
     """
-    parser = argparse.ArgumentParser(description="zsceval", formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description="zsceval", formatter_class=argparse.RawDescriptionHelpFormatter
+    )
 
-    # prepare parameters
-    # MARK: algo name
     parser.add_argument(
         "--algorithm_name",
         type=str,
@@ -35,7 +58,9 @@ def get_config() -> argparse.ArgumentParser:
         default="check",
         help="an identifier to distinguish different experiment.",
     )
-    parser.add_argument("--seed", type=int, default=1, help="Random seed for numpy/torch")
+    parser.add_argument(
+        "--seed", type=int, default=1, help="Random seed for numpy/torch"
+    )
     parser.add_argument(
         "--cuda",
         action="store_false",
@@ -60,18 +85,24 @@ def get_config() -> argparse.ArgumentParser:
         default=32,
         help="Number of parallel envs for training rollout",
     )
+
+    computed_train_chunk = calculate_dummy_chunk_length()
+    safe_eval_threads = computed_train_chunk
+
     parser.add_argument(
         "--dummy_batch_size",
         type=int,
-        default=5,
+        default=computed_train_chunk,
         help="Number of parallel envs in a dummy batch",
     )
+
     parser.add_argument(
         "--n_eval_rollout_threads",
         type=int,
-        default=1,
+        default=safe_eval_threads,
         help="Number of parallel envs for evaluating rollout",
     )
+
     parser.add_argument(
         "--n_render_rollout_threads",
         type=int,
@@ -125,7 +156,9 @@ def get_config() -> argparse.ArgumentParser:
     )
 
     # replay buffer parameters
-    parser.add_argument("--episode_length", type=int, default=200, help="Max length for any episode")
+    parser.add_argument(
+        "--episode_length", type=int, default=200, help="Max length for any episode"
+    )
 
     # network parameters
     parser.add_argument(
@@ -140,7 +173,9 @@ def get_config() -> argparse.ArgumentParser:
         default=True,
         help="Whether to use centralized V function",
     )
-    parser.add_argument("--use_conv1d", action="store_true", default=False, help="Whether to use conv1d")
+    parser.add_argument(
+        "--use_conv1d", action="store_true", default=False, help="Whether to use conv1d"
+    )
     parser.add_argument(
         "--stacked_frames",
         type=int,
@@ -207,7 +242,9 @@ def get_config() -> argparse.ArgumentParser:
         default=True,
         help="Whether to use Orthogonal initialization for weights and 0 initialization for biases",
     )
-    parser.add_argument("--gain", type=float, default=0.01, help="The gain # of last action layer")
+    parser.add_argument(
+        "--gain", type=float, default=0.01, help="The gain # of last action layer"
+    )
     parser.add_argument(
         "--cnn_layers_params",
         type=str,
@@ -234,7 +271,9 @@ def get_config() -> argparse.ArgumentParser:
         default=True,
         help="use a recurrent policy",
     )
-    parser.add_argument("--recurrent_N", type=int, default=1, help="The number of recurrent layers.")
+    parser.add_argument(
+        "--recurrent_N", type=int, default=1, help="The number of recurrent layers."
+    )
     parser.add_argument(
         "--data_chunk_length",
         type=int,
@@ -261,14 +300,18 @@ def get_config() -> argparse.ArgumentParser:
         default=False,
         help=" by default False, use attention tactics.",
     )
-    parser.add_argument("--attn_N", type=int, default=1, help="the number of attn layers, by default 1")
+    parser.add_argument(
+        "--attn_N", type=int, default=1, help="the number of attn layers, by default 1"
+    )
     parser.add_argument(
         "--attn_size",
         type=int,
         default=64,
         help="by default, the hidden size of attn layer",
     )
-    parser.add_argument("--attn_heads", type=int, default=4, help="by default, the # of multiply heads")
+    parser.add_argument(
+        "--attn_heads", type=int, default=4, help="by default, the # of multiply heads"
+    )
     parser.add_argument(
         "--dropout",
         type=float,
@@ -295,8 +338,12 @@ def get_config() -> argparse.ArgumentParser:
     )
 
     # optimizer parameters
-    parser.add_argument("--lr", type=float, default=5e-4, help="learning rate (default: 5e-4)")
-    parser.add_argument("--tau", type=float, default=0.995, help="soft update polyak (default: 0.995)")
+    parser.add_argument(
+        "--lr", type=float, default=5e-4, help="learning rate (default: 5e-4)"
+    )
+    parser.add_argument(
+        "--tau", type=float, default=0.995, help="soft update polyak (default: 0.995)"
+    )
     parser.add_argument(
         "--critic_lr",
         type=float,
@@ -312,7 +359,9 @@ def get_config() -> argparse.ArgumentParser:
     parser.add_argument("--weight_decay", type=float, default=0)
 
     # ppo parameters
-    parser.add_argument("--ppo_epoch", type=int, default=15, help="number of ppo epochs (default: 15)")
+    parser.add_argument(
+        "--ppo_epoch", type=int, default=15, help="number of ppo epochs (default: 15)"
+    )
     parser.add_argument(
         "--use_policy_vhead",
         action="store_true",
@@ -423,8 +472,12 @@ def get_config() -> argparse.ArgumentParser:
         default=True,
         help="by default True, whether to mask useless data in policy loss.",
     )
-    parser.add_argument("--huber_delta", type=float, default=10.0, help=" coefficience of huber loss.")
-    parser.add_argument("--num_v_out", default=1, type=int, help="number of value heads in critic")
+    parser.add_argument(
+        "--huber_delta", type=float, default=10.0, help=" coefficience of huber loss."
+    )
+    parser.add_argument(
+        "--num_v_out", default=1, type=int, help="number of value heads in critic"
+    )
 
     parser.add_argument(
         "--use_single_network",
@@ -523,7 +576,9 @@ def get_config() -> argparse.ArgumentParser:
     )
 
     # wandb
-    parser.add_argument("--wandb_tags", nargs="+", help="wandb tags to your experiment", default=[])
+    parser.add_argument(
+        "--wandb_tags", nargs="+", help="wandb tags to your experiment", default=[]
+    )
 
     # data parallel
     parser.add_argument(

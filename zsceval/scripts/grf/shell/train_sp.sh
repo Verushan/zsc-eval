@@ -23,7 +23,7 @@ for seed in $(seq ${seed_begin} ${seed_max});
 do
     echo "seed is ${seed}"
     python train/train_sp.py --env_name ${env} --algorithm_name ${algo} --experiment_name ${exp} --scenario_name ${scenario}_superhard --num_agents ${num_agents} \
-    --seed ${seed} --n_training_threads 1 --n_rollout_threads 125 --eval_stochastic --dummy_batch_size 1 --num_mini_batch 1 --episode_length 200 --num_env_steps ${num_env_steps} \
+    --seed ${seed} --n_training_threads 1 --n_rollout_threads 125 --eval_stochastic --dummy_batch_size 1  --episode_length 200 --num_env_steps ${num_env_steps} \
     --ppo_epoch 15 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
     --representation "simple115v2_custom" --rewards "scoring,checkpoints" --reward_config '{"score": 5.0, "checkpoints": 1.0}' \
     --use_proper_time_limits \
