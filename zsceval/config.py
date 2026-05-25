@@ -1,6 +1,7 @@
 import argparse
 import getpass
 from loguru import logger
+import torch
 
 
 def scientific_notation(value):
