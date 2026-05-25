@@ -19,7 +19,7 @@ fi
 reward_shaping_horizon="1e8"
 num_env_steps="1e7"
 episode_length=400
-ppo_erpoch=15
+ppo_epoch=15
 num_mini_batch=2
 
 num_agents=2

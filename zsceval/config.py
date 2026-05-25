@@ -20,10 +20,8 @@ def calculate_dummy_chunk_length(max_target=10):
 
     for length in range(max_target, 0, -1):
         if pre_args.n_rollout_threads % length == 0:
-            logger.info(f"Using dummy batch size of {length}")
             return length
 
-    logger.info(f"Using dummy batch size of 1")
     return 1
 
 
@@ -87,7 +85,10 @@ def get_config() -> argparse.ArgumentParser:
     )
 
     computed_train_chunk = calculate_dummy_chunk_length()
-    safe_eval_threads = computed_train_chunk
+    logger.info(f"Using computed training chunk size of {computed_train_chunk}")
+
+    safe_eval_threads = computed_train_chunk if computed_train_chunk == 8 else 1
+    logger.info(f"Using {safe_eval_threads} eval rollout threads")
 
     parser.add_argument(
         "--dummy_batch_size",
