@@ -31,7 +31,7 @@ do
     --episode_length ${episode_length} --num_env_steps ${num_env_steps} \
     --reward_shaping_horizon ${reward_shaping_horizon} --overcooked_version ${version} \
     --ppo_epoch ${ppo_epoch} --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
-    --save_interval 25 --log_interval 10 --use_eval --eval_interval 20  \
+    --save_interval 25 --log_interval 10 --use_eval --eval_interval 20 --n_eval_rollout_threads 1 \
     --cnn_layers_params "32,3,1,1 64,3,1,1 32,3,1,1" --use_recurrent_policy \
     --use_proper_time_limits \
     --use_wandb
@@ -49,7 +49,7 @@ do
      --episode_length ${episode_length} --num_env_steps ${num_env_steps} \
     --reward_shaping_horizon ${reward_shaping_horizon} --overcooked_version ${version} \
     --ppo_epoch ${ppo_epoch} --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
-    --save_interval 25 --log_interval 10 --use_eval --eval_interval 20  \
+    --save_interval 25 --log_interval 10 --use_eval --eval_interval 20  --n_eval_rollout_threads 1 \
     --cnn_layers_params "32,3,1,1 64,3,1,1 32,3,1,1" --use_recurrent_policy \
     --use_proper_time_limits \
     --use_wandb

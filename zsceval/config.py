@@ -85,12 +85,8 @@ def get_config() -> argparse.ArgumentParser:
         help="Number of parallel envs for training rollout",
     )
 
-    if torch.cuda.is_available():
-        computed_train_chunk = calculate_dummy_chunk_length()
-        safe_eval_threads = computed_train_chunk
-    else:
-        computed_train_chunk = 1
-        safe_eval_threads = 1
+    computed_train_chunk = calculate_dummy_chunk_length()
+    safe_eval_threads = computed_train_chunk
 
     logger.info(f"Using computed training chunk size of {computed_train_chunk}")
     logger.info(f"Using {safe_eval_threads} eval rollout threads")
