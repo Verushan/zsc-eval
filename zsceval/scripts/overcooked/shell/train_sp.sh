@@ -37,7 +37,6 @@ do
     python train/train_sp.py --env_name ${env} --algorithm_name ${algo} --experiment_name ${exp} --layout_name ${layout} --num_agents ${num_agents} \
     --seed ${seed} --n_training_threads $TRAINING_THREADS --n_rollout_threads $ROLLOUT_THREADS --dummy_batch_size ${dummy_batch_size} --num_mini_batch ${num_mini_batch} --episode_length ${episode_length} --num_env_steps ${num_env_steps} --reward_shaping_horizon ${reward_shaping_horizon} \
     --overcooked_version ${version} \
-    --data-parallel \
     --ppo_epoch ${ppo_epoch} --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
     --cnn_layers_params "32,3,1,1 64,3,1,1 32,3,1,1" --use_recurrent_policy \
     --use_proper_time_limits \
