@@ -50,13 +50,11 @@ ulimit -n 65536 || ulimit -n 4096
 echo "env is ${env}, layout is ${layout}, algo is ${algo}, pop is ${pop}, exp is ${exp}, seed from ${seed_begin} to ${seed_max}, stage is ${stage}"
 for seed in $(seq ${seed_begin} ${seed_max}); do
     python train/train_adaptive.py --env_name ${env} --algorithm_name ${algo} --experiment_name "${exp}" --layout_name ${layout} --num_agents ${num_agents} \
-        --seed ${seed} --n_training_threads $TRAINING_THREADS  --episode_length 400 --num_env_steps ${num_env_steps} --reward_shaping_horizon ${reward_shaping_horizon} \
-        --overcooked_version ${version} \
-        --n_rollout_threads $ROLLOUT_THREADS \
-        --ppo_epoch 15 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
-        --stage 2 \
-        --data_parallel \
-        --save_interval 25 --log_interval 1 --use_eval --eval_interval 20 --n_eval_rollout_threads $((population_size * 2)) --eval_episodes 5 \
+        --seed ${seed} --n_training_threads $TRAINING_THREADS  --episode_length 400 --num_env_steps ${num_env_steps} \
+        --reward_shaping_horizon ${reward_shaping_horizon} --overcooked_version ${version} \
+        --n_rollout_threads $ROLLOUT_THREADS --ppo_epoch 15 --entropy_coefs ${entropy_coefs} \
+        --entropy_coef_horizons ${entropy_coef_horizons} --stage 2 --data_parallel \
+        --save_interval 1000 --log_interval 50 --use_eval --eval_interval 250 --n_eval_rollout_threads $((population_size * 2)) --eval_episodes 32 \
         --population_yaml_path ${POLICY_POOL}/${layout}/fcp/s2/train-s${population_size}-${pop}-${seed}.yml \
         --population_size $((population_size * 3)) --adaptive_agent_name fcp_adaptive --use_agent_policy_id \
         --use_proper_time_limits \

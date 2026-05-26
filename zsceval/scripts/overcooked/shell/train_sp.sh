@@ -42,6 +42,6 @@ do
     --ppo_epoch ${ppo_epoch} --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
     --cnn_layers_params "32,3,1,1 64,3,1,1 32,3,1,1" --use_recurrent_policy \
     --use_proper_time_limits \
-    --save_interval 25 --log_interval 10 --use_eval --eval_interval 20  \
+    --save_interval 1000 --log_interval 10 --use_eval --eval_interval 250 \
     --wandb_name $WANDB_ENTITY
 done
