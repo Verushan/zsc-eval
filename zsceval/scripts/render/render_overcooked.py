@@ -15,6 +15,8 @@ from zsceval.envs.overcooked_new.Overcooked_Env import Overcooked as Overcooked_
 from zsceval.overcooked_config import get_overcooked_args
 from zsceval.utils.train_util import get_base_run_dir, setup_seed
 
+from loguru import logger
+
 
 def make_render_env(all_args, run_dir):
     def get_env_fn(rank):
