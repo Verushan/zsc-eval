@@ -25,7 +25,7 @@ num_mini_batch=2
 num_agents=2
 algo="mappo"
 exp="sp"
-seed_begin=1
+seed_begin=15
 seed_max=20
 ulimit -n 65536
 
