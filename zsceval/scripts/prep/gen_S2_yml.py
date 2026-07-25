@@ -8,6 +8,7 @@ policy_pool_dir = os.getenv("POLICY_POOL")
 
 S1_POP_EXPS = {
     "fcp": {
+        20: "sp",
         15: "sp",
         10: "sp",
         5: "sp",
@@ -29,8 +30,8 @@ S1_POP_EXPS = {
 # POP_SIZE_LIST = [12, 8, 4]
 # TOTAL_SIZE_LIST = [10, 5]
 # POP_SIZE_LIST = [8, 4]
-TOTAL_SIZE_LIST = [12]
-POP_SIZE_LIST = [12]
+TOTAL_SIZE_LIST = [20]
+POP_SIZE_LIST = [16]
 
 # GRF
 # TOTAL_SIZE_LIST = [5]

@@ -88,9 +88,6 @@ def get_config() -> argparse.ArgumentParser:
     computed_train_chunk = calculate_dummy_chunk_length()
     safe_eval_threads = computed_train_chunk
 
-    logger.info(f"Using computed training chunk size of {computed_train_chunk}")
-    logger.info(f"Using {safe_eval_threads} eval rollout threads")
-
     parser.add_argument(
         "--dummy_batch_size",
         type=int,

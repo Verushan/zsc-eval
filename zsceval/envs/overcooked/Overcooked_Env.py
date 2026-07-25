@@ -28,7 +28,7 @@ from zsceval.envs.overcooked.overcooked_ai_py.visualization.state_visualizer imp
     StateVisualizer,
 )
 from zsceval.envs.overcooked.script_agent.script_agent import SCRIPT_AGENTS
-from zsceval.utils.train_util import setup_seed
+from zsceval.utils.train_util import setup_seed, get_base_run_dir
 
 DEFAULT_ENV_PARAMS = {"horizon": 400}
 
@@ -64,7 +64,9 @@ class OvercookedEnv:
         elif callable(mdp) and isinstance(mdp(), OvercookedGridworld):
             self.mdp_generator_fn = mdp
         else:
-            raise ValueError("Mdp should be either OvercookedGridworld instance or a generating function")
+            raise ValueError(
+                "Mdp should be either OvercookedGridworld instance or a generating function"
+            )
 
         self.horizon = horizon
         self.start_state_fn = start_state_fn
@@ -153,7 +155,9 @@ class OvercookedEnv:
             p = np.random.uniform(0, 1)
             if p <= self.start_state_fn and not self.evaluation:
                 # logger.error("Random start state")
-                self.state = self.mdp.get_random_start_state(self.use_random_terrain_state, self.use_random_player_pos)
+                self.state = self.mdp.get_random_start_state(
+                    self.use_random_terrain_state, self.use_random_player_pos
+                )
             else:
                 self.state = self.mdp.get_standard_start_state()
         else:
@@ -166,7 +170,9 @@ class OvercookedEnv:
         rewards_dict = {
             "cumulative_sparse_rewards_by_agent": np.array([0] * self.mdp.num_players),
             "cumulative_shaped_rewards_by_agent": np.array([0] * self.mdp.num_players),
-            "cumulative_category_rewards_by_agent": np.zeros((self.mdp.num_players, len(SHAPED_INFOS))),
+            "cumulative_category_rewards_by_agent": np.zeros(
+                (self.mdp.num_players, len(SHAPED_INFOS))
+            ),
         }
 
         self.game_stats = {**rewards_dict}
@@ -182,13 +188,20 @@ class OvercookedEnv:
         """
         # Get the agent action info, that could contain info about action probs, or other
         # custom user defined information
-        env_info = {"agent_infos": [joint_agent_action_info[agent_idx] for agent_idx in range(self.mdp.num_players)]}
+        env_info = {
+            "agent_infos": [
+                joint_agent_action_info[agent_idx]
+                for agent_idx in range(self.mdp.num_players)
+            ]
+        }
         # TODO: This can be further simplified by having all the mdp_infos copied over to the env_infos automatically
         env_info["sparse_r_by_agent"] = mdp_infos["sparse_reward_by_agent"]
         env_info["shaped_r_by_agent"] = mdp_infos["shaped_reward_by_agent"]
         env_info["shaped_info_by_agent"] = mdp_infos["shaped_info_by_agent"]
         env_info["phi_s"] = mdp_infos["phi_s"] if "phi_s" in mdp_infos else None
-        env_info["phi_s_prime"] = mdp_infos["phi_s_prime"] if "phi_s_prime" in mdp_infos else None
+        env_info["phi_s_prime"] = (
+            mdp_infos["phi_s_prime"] if "phi_s_prime" in mdp_infos else None
+        )
         return env_info
 
     # MARK: info
@@ -197,9 +210,15 @@ class OvercookedEnv:
             "ep_game_stats": self.game_stats,
             "ep_sparse_r": sum(self.game_stats["cumulative_sparse_rewards_by_agent"]),
             "ep_shaped_r": sum(self.game_stats["cumulative_shaped_rewards_by_agent"]),
-            "ep_sparse_r_by_agent": self.game_stats["cumulative_sparse_rewards_by_agent"],
-            "ep_shaped_r_by_agent": self.game_stats["cumulative_shaped_rewards_by_agent"],
-            "ep_category_r_by_agent": self.game_stats["cumulative_category_rewards_by_agent"],
+            "ep_sparse_r_by_agent": self.game_stats[
+                "cumulative_sparse_rewards_by_agent"
+            ],
+            "ep_shaped_r_by_agent": self.game_stats[
+                "cumulative_shaped_rewards_by_agent"
+            ],
+            "ep_category_r_by_agent": self.game_stats[
+                "cumulative_category_rewards_by_agent"
+            ],
             "ep_length": self.t,
         }
         return env_info
@@ -213,7 +232,9 @@ class OvercookedEnv:
             # return np.array([v for k, v in d.items()])
             return np.array([d[k] for k in SHAPED_INFOS])
 
-        shaped_info_by_agent = np.stack([vectorize(shaped_info) for shaped_info in shaped_info_by_agent])
+        shaped_info_by_agent = np.stack(
+            [vectorize(shaped_info) for shaped_info in shaped_info_by_agent]
+        )
         return shaped_info_by_agent
 
     def _update_game_stats(self, infos):
@@ -221,11 +242,15 @@ class OvercookedEnv:
         Update the game stats dict based on the events of the current step
         NOTE: the timer ticks after events are logged, so there can be events from time 0 to time self.horizon - 1
         """
-        self.game_stats["cumulative_sparse_rewards_by_agent"] += np.array(infos["sparse_reward_by_agent"])
-        self.game_stats["cumulative_shaped_rewards_by_agent"] += np.array(infos["shaped_reward_by_agent"])
-        self.game_stats["cumulative_category_rewards_by_agent"] += self.vectorize_shaped_info(
-            infos["shaped_info_by_agent"]
+        self.game_stats["cumulative_sparse_rewards_by_agent"] += np.array(
+            infos["sparse_reward_by_agent"]
         )
+        self.game_stats["cumulative_shaped_rewards_by_agent"] += np.array(
+            infos["shaped_reward_by_agent"]
+        )
+        self.game_stats[
+            "cumulative_category_rewards_by_agent"
+        ] += self.vectorize_shaped_info(infos["shaped_info_by_agent"])
 
         """for event_type, bool_list_by_agent in infos["event_infos"].items():
             # For each event type, store the timestep if it occurred
@@ -252,7 +277,9 @@ class OvercookedEnv:
         self.reset()
         return successor_state, done
 
-    def run_agents(self, agent_pair, include_final_state=False, display=False, display_until=np.Inf):
+    def run_agents(
+        self, agent_pair, include_final_state=False, display=False, display_until=np.Inf
+    ):
         """
         Trajectory returned will a list of state-action pairs (s_t, joint_a_t, r_t, done_t).
         """
@@ -347,7 +374,9 @@ class OvercookedEnv:
             trajectories["ep_actions"].append(actions)
             trajectories["ep_rewards"].append(rews)
             trajectories["ep_dones"].append(dones)
-            trajectories["ep_returns"].append(tot_rews_sparse + tot_rews_shaped * reward_shaping)
+            trajectories["ep_returns"].append(
+                tot_rews_sparse + tot_rews_shaped * reward_shaping
+            )
             trajectories["ep_returns_sparse"].append(tot_rews_sparse)
             trajectories["ep_lengths"].append(time_taken)
             trajectories["mdp_params"].append(self.mdp.mdp_params)
@@ -432,7 +461,9 @@ class Overcooked(gym.Env):
             self.w0 = self.string2array(all_args.w0)
             self.w1 = self.string2array(all_args.w1)
             w_dict = {"w0": f"{self.w0}", "w1": f"{self.w1}"}
-            logger.debug("hsp weights:\n" + pprint.pformat(w_dict, compact=True, width=120))
+            logger.debug(
+                "hsp weights:\n" + pprint.pformat(w_dict, compact=True, width=120)
+            )
             self.cumulative_hidden_reward = np.zeros(2)
         self.use_available_actions = getattr(all_args, "use_available_actions", True)
         self.use_render = all_args.use_render
@@ -460,7 +491,9 @@ class Overcooked(gym.Env):
         self.base_mdp = self.mdp_fn()
         self.base_env = OvercookedEnv(
             self.mdp_fn,
-            start_state_fn=self.random_start_prob if self.random_start_prob > 0 else None,
+            start_state_fn=(
+                self.random_start_prob if self.random_start_prob > 0 else None
+            ),
             **env_params,
         )
         self.mlp = MediumLevelPlanner.from_pickle_or_compute(
@@ -477,20 +510,28 @@ class Overcooked(gym.Env):
             horizon=self.episode_length,
             add_identity=all_args.use_identity_feature,
         )  # Encoding obs for PPO
-        self.featurize_fn_bc = lambda state: self.base_mdp.featurize_state(state)  # Encoding obs for BC
+        self.featurize_fn_bc = lambda state: self.base_mdp.featurize_state(
+            state
+        )  # Encoding obs for BC
         self.featurize_fn_mapping = {
             "ppo": self.featurize_fn_ppo,
             "bc": self.featurize_fn_bc,
         }
-        self.reset_featurize_type(featurize_type=featurize_type)  # default agents are both ppo
+        self.reset_featurize_type(
+            featurize_type=featurize_type
+        )  # default agents are both ppo
 
         if self.all_args.algorithm_name == "population":
             assert not self.random_index
             self.script_agent = [None, None]
-            for player_idx, policy_name in enumerate([all_args.agent0_policy_name, all_args.agent1_policy_name]):
+            for player_idx, policy_name in enumerate(
+                [all_args.agent0_policy_name, all_args.agent1_policy_name]
+            ):
                 if policy_name.startswith("script:"):
                     self.script_agent[player_idx] = SCRIPT_AGENTS[policy_name[7:]]()
-                    self.script_agent[player_idx].reset(self.base_env.mdp, self.base_env.state, player_idx)
+                    self.script_agent[player_idx].reset(
+                        self.base_env.mdp, self.base_env.state, player_idx
+                    )
         else:
             self.script_agent = [None, None]
 
@@ -538,7 +579,9 @@ class Overcooked(gym.Env):
         return [a[0] for a in list(action)]
 
     def _observation_space(self, featurize_type):
-        return {"ppo": self.ppo_observation_space, "bc": self.bc_observation_space}[featurize_type]
+        return {"ppo": self.ppo_observation_space, "bc": self.bc_observation_space}[
+            featurize_type
+        ]
 
     def _setup_observation_space(self):
         dummy_state = self.base_env.mdp.get_standard_start_state()
@@ -549,14 +592,18 @@ class Overcooked(gym.Env):
         obs_shape = featurize_fn_ppo(dummy_state)[0].shape
         high = np.ones(obs_shape) * float("inf")
         low = np.ones(obs_shape) * 0
-        self.ppo_observation_space = gym.spaces.Box(np.float32(low), np.float32(high), dtype=np.float32)
+        self.ppo_observation_space = gym.spaces.Box(
+            np.float32(low), np.float32(high), dtype=np.float32
+        )
 
         # bc observation
         featurize_fn_bc = lambda state: self.base_mdp.featurize_state(state, self.mlp)
         obs_shape = featurize_fn_bc(dummy_state)[0].shape
         high = np.ones(obs_shape) * 100
         low = np.ones(obs_shape) * -100
-        self.bc_observation_space = gym.spaces.Box(np.float32(low), np.float32(high), dtype=np.float32)
+        self.bc_observation_space = gym.spaces.Box(
+            np.float32(low), np.float32(high), dtype=np.float32
+        )
 
     def _setup_share_observation_space(self):
         dummy_state = self.base_env.mdp.get_standard_start_state()
@@ -589,7 +636,8 @@ class Overcooked(gym.Env):
                 share_obs[a] = np.concatenate(
                     [
                         share_obs[a],
-                        np.ones((*share_obs[a].shape[:2], 1), dtype=np.float32) * self.agent_policy_id[a],
+                        np.ones((*share_obs[a].shape[:2], 1), dtype=np.float32)
+                        * self.agent_policy_id[a],
                     ],
                     axis=-1,
                 )
@@ -598,7 +646,9 @@ class Overcooked(gym.Env):
         return np.stack([share_obs0, share_obs1], axis=0)  # shape (2, *obs_shape)
 
     def _get_available_actions(self):
-        available_actions = np.ones((self.num_agents, len(Action.ALL_ACTIONS)), dtype=np.uint8)
+        available_actions = np.ones(
+            (self.num_agents, len(Action.ALL_ACTIONS)), dtype=np.uint8
+        )
         if self.use_available_actions:
             state = self.base_env.state
             interact_index = Action.ACTION_TO_INDEX["interact"]
@@ -608,7 +658,10 @@ class Overcooked(gym.Env):
                 o = player.orientation
                 for move_i, move in enumerate(Direction.ALL_DIRECTIONS):
                     new_pos = Action.move_in_direction(pos, move)
-                    if new_pos not in self.base_mdp.get_valid_player_positions() and o == move:
+                    if (
+                        new_pos not in self.base_mdp.get_valid_player_positions()
+                        and o == move
+                    ):
                         available_actions[agent_idx, move_i] = 0
 
                 i_pos = Action.move_in_direction(pos, o)
@@ -626,9 +679,19 @@ class Overcooked(gym.Env):
                     or (terrain_type in ["O", "T", "D"] and player.has_object())
                     or (
                         terrain_type == "P"
-                        and (not player.has_object() or player.get_object().name not in ["dish", "onion", "tomato"])
+                        and (
+                            not player.has_object()
+                            or player.get_object().name
+                            not in ["dish", "onion", "tomato"]
+                        )
                     )
-                    or (terrain_type == "S" and (not player.has_object() or player.get_object().name not in ["soup"]))
+                    or (
+                        terrain_type == "S"
+                        and (
+                            not player.has_object()
+                            or player.get_object().name not in ["soup"]
+                        )
+                    )
                 ):
                     available_actions[agent_idx, interact_index] = 0
                 # assert available_actions[agent_idx].sum() > 0
@@ -649,7 +712,9 @@ class Overcooked(gym.Env):
         """
         self.step_count += 1
         action = self._action_convertor(action)
-        assert all(self.action_space[0].contains(a) for a in action), "{!r} ({}) invalid".format(
+        assert all(
+            self.action_space[0].contains(a) for a in action
+        ), "{!r} ({}) invalid".format(
             action,
             type(action),
         )
@@ -660,7 +725,9 @@ class Overcooked(gym.Env):
 
         for a in range(self.num_agents):
             if self.script_agent[a] is not None:
-                joint_action[a] = self.script_agent[a].step(self.base_env.mdp, self.base_env.state, a)
+                joint_action[a] = self.script_agent[a].step(
+                    self.base_env.mdp, self.base_env.state, a
+                )
         joint_action = tuple(joint_action)
 
         if self.agent_idx == 1:
@@ -674,11 +741,17 @@ class Overcooked(gym.Env):
 
         if self.use_phi:
             raise NotImplementedError
-            next_state, sparse_reward, done, info = self.base_env.step(joint_action, display_phi=True)
+            next_state, sparse_reward, done, info = self.base_env.step(
+                joint_action, display_phi=True
+            )
             potential = info["phi_s_prime"] - info["phi_s"]
             dense_reward = (potential, potential)
-            shaped_reward_p0 = sparse_reward + self.reward_shaping_factor * dense_reward[0]
-            shaped_reward_p1 = sparse_reward + self.reward_shaping_factor * dense_reward[1]
+            shaped_reward_p0 = (
+                sparse_reward + self.reward_shaping_factor * dense_reward[0]
+            )
+            shaped_reward_p1 = (
+                sparse_reward + self.reward_shaping_factor * dense_reward[1]
+            )
         else:
             next_state, sparse_reward, done, info = self.base_env.step(joint_action)
 
@@ -692,7 +765,10 @@ class Overcooked(gym.Env):
                 #     [[v for k, v in agent_info.items()] for agent_info in shaped_info]
                 # ).astype(np.float32)
                 vec_shaped_info = np.array(
-                    [[agent_info[k] for k in SHAPED_INFOS] for agent_info in shaped_info]
+                    [
+                        [agent_info[k] for k in SHAPED_INFOS]
+                        for agent_info in shaped_info
+                    ]
                 ).astype(np.float32)
                 assert (
                     len(self.w0) == len(self.w1) == len(SHAPED_INFOS) + 1
@@ -701,17 +777,25 @@ class Overcooked(gym.Env):
                 #! no default reward shaping for hidden-utility agent
                 if self.agent_idx == 0:
                     hidden_reward = (
-                        np.dot(self.w0[:-1], vec_shaped_info[0]) + sparse_reward * self.w0[-1],
-                        np.dot(self.w1[:-1], vec_shaped_info[1]) + sparse_reward * self.w1[-1],
+                        np.dot(self.w0[:-1], vec_shaped_info[0])
+                        + sparse_reward * self.w0[-1],
+                        np.dot(self.w1[:-1], vec_shaped_info[1])
+                        + sparse_reward * self.w1[-1],
                     )
                     shaped_reward_p0 = hidden_reward[0]
-                    shaped_reward_p1 = hidden_reward[1] + self.reward_shaping_factor * dense_reward[1]
+                    shaped_reward_p1 = (
+                        hidden_reward[1] + self.reward_shaping_factor * dense_reward[1]
+                    )
                 else:
                     hidden_reward = (
-                        np.dot(self.w1[:-1], vec_shaped_info[0]) + sparse_reward * self.w1[-1],
-                        np.dot(self.w0[:-1], vec_shaped_info[1]) + sparse_reward * self.w0[-1],
+                        np.dot(self.w1[:-1], vec_shaped_info[0])
+                        + sparse_reward * self.w1[-1],
+                        np.dot(self.w0[:-1], vec_shaped_info[1])
+                        + sparse_reward * self.w0[-1],
                     )
-                    shaped_reward_p0 = hidden_reward[0] + self.reward_shaping_factor * dense_reward[0]
+                    shaped_reward_p0 = (
+                        hidden_reward[0] + self.reward_shaping_factor * dense_reward[0]
+                    )
                     shaped_reward_p1 = hidden_reward[1]
                 self.cumulative_hidden_reward += hidden_reward
                 #! BUG: reward_shaping_factor
@@ -724,8 +808,12 @@ class Overcooked(gym.Env):
                 # )
             else:
                 dense_reward = info["shaped_r_by_agent"]
-                shaped_reward_p0 = sparse_reward + self.reward_shaping_factor * dense_reward[0]
-                shaped_reward_p1 = sparse_reward + self.reward_shaping_factor * dense_reward[1]
+                shaped_reward_p0 = (
+                    sparse_reward + self.reward_shaping_factor * dense_reward[0]
+                )
+                shaped_reward_p1 = (
+                    sparse_reward + self.reward_shaping_factor * dense_reward[1]
+                )
         # TODO: log returned reward
         if self.store_traj:
             self.traj_to_store.append(info["shaped_info_by_agnet"])
@@ -763,7 +851,9 @@ class Overcooked(gym.Env):
         for agent_id in range(2):
             stuck, history_a = self.is_stuck(agent_id)
             if stuck:
-                assert any([a not in history_a for a in Direction.ALL_DIRECTIONS]), history_a
+                assert any(
+                    [a not in history_a for a in Direction.ALL_DIRECTIONS]
+                ), history_a
                 history_a_idxes = [Action.ACTION_TO_INDEX[a] for a in history_a]
                 stuck_info.append([True, history_a_idxes])
             else:
@@ -813,7 +903,9 @@ class Overcooked(gym.Env):
         Set the current reward shaping factor such that we anneal linearly until self.reward_shaping_horizon
         timesteps, given that we are currently at timestep "timesteps"
         """
-        new_factor = self._anneal(self._initial_reward_shaping_factor, timesteps, self.reward_shaping_horizon)
+        new_factor = self._anneal(
+            self._initial_reward_shaping_factor, timesteps, self.reward_shaping_horizon
+        )
         self.set_reward_shaping_factor(new_factor)
 
     def set_reward_shaping_factor(self, factor):
@@ -844,7 +936,9 @@ class Overcooked(gym.Env):
         self.mdp = self.base_env.mdp
         ob_p0, ob_p1 = self.featurize_fn(self.base_env.state)
         if self.stuck_time > 0:
-            self.history_sa = [None for _ in range(self.stuck_time - 1)] + [[self.base_env.state, None]]
+            self.history_sa = [None for _ in range(self.stuck_time - 1)] + [
+                [self.base_env.state, None]
+            ]
 
         both_agents_ob = (ob_p0, ob_p1)
         if self.agent_idx == 1:
@@ -872,7 +966,9 @@ class Overcooked(gym.Env):
         if self.stuck_time == 0 or None in self.history_sa:
             return False, []
         history_s = [sa[0] for sa in self.history_sa]
-        history_a = [sa[1][agent_id] for sa in self.history_sa[:-1]]  # last action is None
+        history_a = [
+            sa[1][agent_id] for sa in self.history_sa[:-1]
+        ]  # last action is None
         player_s = [s.players[agent_id] for s in history_s]
         pos_and_ors = [p.pos_and_or for p in player_s]
         cur_po = pos_and_ors[-1]
@@ -887,27 +983,31 @@ class Overcooked(gym.Env):
             self.traj[key].append([])
 
     def render(self):
-        # raise NotImplementedError
-        # try:
         save_dir = f"{self.run_dir}/gifs/{self.layout_name}/traj_num_{self.traj_num}"
         save_dir = os.path.expanduser(save_dir)
-        StateVisualizer().display_rendered_trajectory(self.traj, img_directory_path=save_dir, ipython_display=False)
+        StateVisualizer().display_rendered_trajectory(
+            self.traj, img_directory_path=save_dir, ipython_display=False
+        )
+
         for img_path in os.listdir(save_dir):
             img_path = save_dir + "/" + img_path
+
         imgs = []
         imgs_dir = os.listdir(save_dir)
         imgs_dir = sorted(imgs_dir, key=lambda x: int(x.split(".")[0]))
         for img_path in imgs_dir:
             img_path = save_dir + "/" + img_path
             imgs.append(imageio.imread(img_path))
-        imageio.mimsave(save_dir + f'/reward_{self.traj["ep_returns"][0]}.gif', imgs, duration=0.05)
+        imageio.mimsave(
+            save_dir + f'/reward_{self.traj["ep_returns"][0]}.gif', imgs, duration=0.05
+        )
         imgs_dir = os.listdir(save_dir)
         for img_path in imgs_dir:
             img_path = save_dir + "/" + img_path
             if "png" in img_path:
                 os.remove(img_path)
-        # except Exception as e:
-        #    print('failed to render traj: ', e)
+
+        logger.info(f"Trajectory saved to {save_dir}")
 
     def fake_render(self):
         state = self.base_env.state
@@ -936,7 +1036,11 @@ class Overcooked(gym.Env):
                         grid_string += player_object.name[:1]
                         plt_str += player_object.name[:1]
                     else:
-                        player_idx_lst = [i for i, p in enumerate(state.players) if p.position == player.position]
+                        player_idx_lst = [
+                            i
+                            for i, p in enumerate(state.players)
+                            if p.position == player.position
+                        ]
                         assert len(player_idx_lst) == 1
                         grid_string += str(player_idx_lst[0])
                         plt_str += str(player_idx_lst[0])

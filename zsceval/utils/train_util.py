@@ -1,6 +1,6 @@
 import random
 import socket
-from os import path as osp
+import os
 
 import numpy as np
 import torch
@@ -17,5 +17,6 @@ def setup_seed(seed: int):
 
 def get_base_run_dir() -> str:
     socket.gethostname()
-    base = osp.join(osp.expanduser("~"), "ZSC/results")
+    python_path = os.environ.get("PYTHONPATH")
+    base = os.path.join(python_path, "results")
     return base

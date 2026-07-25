@@ -16,6 +16,10 @@ from zsceval.envs.overcooked_new.Overcooked_Env import Overcooked as Overcooked_
 from zsceval.overcooked_config import get_overcooked_args
 from zsceval.utils.train_util import setup_seed
 
+os.environ["WANDB_DIR"] = os.getcwd() + "/wandb/"
+os.environ["WANDB_CACHE_DIR"] = os.getcwd() + "/wandb/.cache/"
+os.environ["WANDB_CONFIG_DIR"] = os.getcwd() + "/wandb/.config/"
+
 
 def make_eval_env(all_args, run_dir):
     def get_env_fn(rank):
@@ -137,7 +141,7 @@ def main(args):
             group=all_args.layout_name,
             dir=str(run_dir),
             job_type="training",
-            reinit=True,
+            tags=all_args.wandb_tags,
         )
     else:
         if not run_dir.exists():

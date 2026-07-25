@@ -185,4 +185,7 @@ def main(args):
 
 
 if __name__ == "__main__":
+    logger.remove()
+    logger.add(sys.stdout, level="DEBUG")
+    logger.add(sys.stdout, level="INFO")
     main(sys.argv[1:])

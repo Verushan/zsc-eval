@@ -9,11 +9,11 @@ else
     version="new"
 fi
 
-if [[ ${population_size} == 12 ]]; then
+if [[ ${population_size} == 16 ]]; then
     entropy_coefs="0.2 0.05 0.01"
-    entropy_coef_horizons="0 2.5e7 5e7"
-    reward_shaping_horizon="5e7"
-    num_env_steps="5e7"
+    entropy_coef_horizons="0 2.5e5 5e5"
+    reward_shaping_horizon="5e5"
+    num_env_steps="5e5"
     pop="sp"
 elif [[ ${population_size} == 24 ]]; then
     entropy_coefs="0.2 0.05 0.01"
