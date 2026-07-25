@@ -16,8 +16,8 @@ if [[ "${layout}" == "small_corridor" ]]; then
     entropy_coef_horizons="0 8e6 1e7"
 fi
 
-reward_shaping_horizon="1e8"
-num_env_steps="1e7"
+reward_shaping_horizon="1e6"
+num_env_steps="1e6"
 episode_length=400
 ppo_epoch=15
 num_mini_batch=2
@@ -25,8 +25,8 @@ num_mini_batch=2
 num_agents=2
 algo="mappo"
 exp="sp"
-seed_begin=15
-seed_max=20
+seed_begin=2
+seed_max=4
 ulimit -n 65536
 
 echo "env is ${env}, layout is ${layout}, algo is ${algo}, exp is ${exp}, seed from ${seed_begin} to ${seed_max}"

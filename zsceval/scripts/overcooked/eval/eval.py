@@ -111,12 +111,14 @@ def main(args):
 
     # run dir
     run_dir = (
-        Path(os.path.expanduser("~") + "/ZSC/results")
+        Path(os.getenv("PYTHONPATH"))
+        / "results"
         / all_args.env_name
         / all_args.layout_name
         / all_args.algorithm_name
         / all_args.experiment_name
     )
+
     if not run_dir.exists():
         os.makedirs(str(run_dir))
     all_args.run_dir = run_dir
