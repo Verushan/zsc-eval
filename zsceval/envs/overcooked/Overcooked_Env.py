@@ -9,6 +9,7 @@ import numpy as np
 import tqdm
 from loguru import logger
 
+from zsceval.envs.morl.objectives import ObjectiveContext, make_objective_vector
 from zsceval.envs.overcooked.overcooked_ai_py.mdp.actions import Action, Direction
 from zsceval.envs.overcooked.overcooked_ai_py.mdp.overcooked_mdp import (
     BASE_REW_SHAPING_PARAMS,
@@ -53,11 +54,17 @@ class OvercookedEnv:
         use_random_terrain_state: bool = False,
         num_initial_state: int = 5,
         replay_return_threshold: float = 0.75,
+        objectives=None,
     ):
         """
         mdp (OvercookedGridworld or function): either an instance of the MDP or a function that returns MDP instances
         start_state_fn (OvercookedState): function that returns start state for the MDP, called at each environment reset
         horizon (float): number of steps before the environment returns done=True
+        objectives: multi-objective (MORL) reward specification, passed to
+            `zsceval.envs.morl.make_objective_vector` -- a preset name such as
+            "default", a list of objective names, or an ObjectiveVector. When
+            None (the default) no objective vector is computed and the
+            environment behaves exactly as before.
         """
         if isinstance(mdp, OvercookedGridworld):
             self.mdp_generator_fn = lambda: mdp
@@ -73,6 +80,8 @@ class OvercookedEnv:
         self.evaluation = evaluation
         self.use_random_player_pos = use_random_player_pos
         self.use_random_terrain_state = use_random_terrain_state
+        # NOTE: must be set before reset(), which resets the objective vector.
+        self.objectives = make_objective_vector(objectives)
         self.reset()
 
         if self.horizon >= MAX_HORIZON and self.state.order_list is None and debug:
@@ -133,10 +142,19 @@ class OvercookedEnv:
         # Update game_stats
         self._update_game_stats(mdp_infos)
 
+        # MORL: score this step against each objective. Computed while self.state
+        # is still the pre-transition state, which is what objectives need to
+        # recover interact positions.
+        vec_r_by_agent = self._update_objectives(next_state, joint_action, mdp_infos)
+
         # Update state and done
         self.state = next_state
         done = self.is_done()
         env_info = self._prepare_info_dict([{}, {}], mdp_infos)
+
+        if vec_r_by_agent is not None:
+            env_info["vec_r_by_agent"] = vec_r_by_agent
+            env_info["objective_names"] = self.objectives.names
 
         if done:
             self._add_episode_info(env_info)
@@ -174,6 +192,12 @@ class OvercookedEnv:
                 (self.mdp.num_players, len(SHAPED_INFOS))
             ),
         }
+
+        if self.objectives is not None:
+            self.objectives.reset(self.mdp.num_players)
+            rewards_dict["cumulative_objective_rewards_by_agent"] = np.zeros(
+                (self.mdp.num_players, len(self.objectives))
+            )
 
         self.game_stats = {**rewards_dict}
 
@@ -221,7 +245,41 @@ class OvercookedEnv:
             ],
             "ep_length": self.t,
         }
+        if self.objectives is not None:
+            env_info["episode"]["ep_vec_r_by_agent"] = self.game_stats[
+                "cumulative_objective_rewards_by_agent"
+            ]
+            env_info["episode"]["ep_objective_names"] = self.objectives.names
         return env_info
+
+    def _update_objectives(self, next_state, joint_action, mdp_infos):
+        """Score one step against the MORL objective vector.
+
+        Must be called while `self.state` is still the pre-transition state:
+        objectives recover the tile an agent interacted with from its pose, and
+        INTERACT leaves position and orientation unchanged, so the pre-transition
+        pose is the pose at interact-resolution time.
+
+        Returns:
+            A (num_players, K) float array, or None when objectives are disabled.
+        """
+        if self.objectives is None:
+            return None
+
+        context = ObjectiveContext(
+            mdp=self.mdp,
+            prev_state=self.state,
+            next_state=next_state,
+            joint_action=joint_action,
+            shaped_info_by_agent=mdp_infos["shaped_info_by_agent"],
+            sparse_r_by_agent=mdp_infos["sparse_reward_by_agent"],
+            shaped_r_by_agent=mdp_infos["shaped_reward_by_agent"],
+            num_players=self.mdp.num_players,
+            t=self.t,
+        )
+        vec_r_by_agent = self.objectives.step(context)
+        self.game_stats["cumulative_objective_rewards_by_agent"] += vec_r_by_agent
+        return vec_r_by_agent
 
     def vectorize_shaped_info(self, shaped_info_by_agent):
         from zsceval.envs.overcooked.overcooked_ai_py.mdp.overcooked_mdp import (
@@ -486,6 +544,8 @@ class Overcooked(gym.Env):
             "use_random_terrain_state": all_args.use_random_terrain_state,
             "num_initial_state": all_args.num_initial_state,
             "replay_return_threshold": all_args.replay_return_threshold,
+            # MORL: opt-in via --morl_objectives. Absent/None => scalar-reward
+            "objectives": getattr(all_args, "morl_objectives", None),
         }
         self.mdp_fn = lambda: OvercookedGridworld.from_layout_name(**mdp_params)
         self.base_mdp = self.mdp_fn()
