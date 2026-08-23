@@ -151,6 +151,9 @@ if __name__ == "__main__":
     assert all([algo in ["traj", "mep", "fcp", "cole", "hsp"] for algo in algorithms])
     ALG_EXPS = {
         "fcp": [
+            # The parent repo pins POP_SIZE=16 in prep/gen_S2_yml.py, so the
+            # stage-2 runs are logged as fcp-S2-s16.
+            "fcp-S2-s16",
             "fcp-S2-s12",
             "fcp-S2-s24",
             "fcp-S2-s36",

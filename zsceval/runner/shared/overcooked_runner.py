@@ -633,6 +633,10 @@ class OvercookedRunner(Runner):
             eval_env_infos["eval_ep_shaped_r"].append(
                 eval_info["episode"]["ep_shaped_r"]
             )
+            # No-op unless the eval env was built with --morl_objectives, so
+            # cross-play against a MORL agent can report the same per-objective
+            # breakdown that training logs, rather than a counter-based proxy.
+            self._collect_objective_infos(eval_env_infos, eval_info, prefix="eval_")
 
         return eval_env_infos
 
