@@ -86,6 +86,12 @@ def parse_args(args, parser: argparse.ArgumentParser):
 
     all_args = parser.parse_args(args)
 
+    # Only zsceval/envs/overcooked/ carries the MORL objective layer; the "new"
+    # multi-recipe env would silently ignore --use_morl and train on sparse reward.
+    assert not (
+        all_args.use_morl and all_args.overcooked_version == "new"
+    ), "--use_morl is only supported by --overcooked_version old"
+
     from zsceval.overcooked_config import OLD_LAYOUTS
 
     if all_args.layout_name in OLD_LAYOUTS:

@@ -83,4 +83,70 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
 
     parser.add_argument("--num_initial_state", type=int, default=5)
     parser.add_argument("--replay_return_threshold", type=float, default=0.75)
+
+    # ------------------------------------------------------------------
+    # MORL: vector-valued reward (zsceval.envs.morl)
+    # ------------------------------------------------------------------
+    # `--morl_objectives` alone only *tracks* the objective vector, so an
+    # existing sp/fcp/mep run can log per-objective breakdowns without its
+    # reward changing. `--use_morl` additionally makes w . r_vec the reward.
+    parser.add_argument(
+        "--morl_objectives",
+        type=str,
+        default=None,
+        help="Objective set name (e.g. 'default', 'task_only') or a comma-separated list of "
+        "objective names. Default None disables the objective vector entirely.",
+    )
+    parser.add_argument(
+        "--use_morl",
+        default=False,
+        action="store_true",
+        help="Use the scalarized objective vector as the RL reward instead of sparse + shaped "
+        "reward. Implies --morl_objectives default when that is unset.",
+    )
+    parser.add_argument(
+        "--morl_weights",
+        type=str,
+        default="",
+        help="Comma-separated preference weights over --morl_objectives. Empty means uniform 1/K.",
+    )
+    parser.add_argument(
+        "--morl_reward_scale",
+        type=float,
+        default=1.0,
+        help="Global multiplier on the scalarized objective reward.",
+    )
+    parser.add_argument(
+        "--morl_adaptive_weights",
+        default=False,
+        action="store_true",
+        help="Adapt the preference weights online with the mirror descent update.",
+    )
+    # The update is multiplicative and runs every env step, so what moves w is
+    # eta * episode_length; these defaults are scaled for the 400-step horizon.
+    parser.add_argument(
+        "--morl_eta_min",
+        type=float,
+        default=1e-4,
+        help="Mirror descent step size when the objective proportions are perfectly balanced.",
+    )
+    parser.add_argument(
+        "--morl_eta_max",
+        type=float,
+        default=5e-3,
+        help="Mirror descent step size when the objective proportions are maximally imbalanced.",
+    )
+    parser.add_argument(
+        "--morl_weight_floor",
+        type=float,
+        default=0.01,
+        help="Smallest preference weight any objective may hold, so an objective is never "
+        "switched off permanently. Must be below 1/K; 0 disables it.",
+    )
+    parser.add_argument(
+        "--morl_weight_update_interval",
+        type=int,
+        default=1,
+        help="Env steps between mirror descent preference updates.",
+    )
     return parser

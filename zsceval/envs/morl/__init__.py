@@ -8,10 +8,12 @@ from zsceval.envs.morl.objectives import (
     ObjectiveVector,
     make_objective_vector,
 )
+from zsceval.envs.morl.preferences import MirrorDescentPreferences
 
 __all__ = [
     "OBJECTIVE_REGISTRY",
     "OBJECTIVE_SETS",
+    "MirrorDescentPreferences",
     "Objective",
     "ObjectiveContext",
     "ObjectiveVector",

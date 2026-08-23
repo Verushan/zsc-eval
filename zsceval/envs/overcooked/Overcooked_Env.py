@@ -10,6 +10,7 @@ import tqdm
 from loguru import logger
 
 from zsceval.envs.morl.objectives import ObjectiveContext, make_objective_vector
+from zsceval.envs.morl.preferences import MirrorDescentPreferences
 from zsceval.envs.overcooked.overcooked_ai_py.mdp.actions import Action, Direction
 from zsceval.envs.overcooked.overcooked_ai_py.mdp.overcooked_mdp import (
     BASE_REW_SHAPING_PARAMS,
@@ -534,6 +535,13 @@ class Overcooked(gym.Env):
         self.traj_num = 0
         self.step_count = 0
         self.run_dir = run_dir
+        self.use_morl = getattr(all_args, "use_morl", False)
+        # `--morl_objectives` alone only tracks the objective vector for logging;
+        # `--use_morl` additionally makes it the reward, and needs one.
+        morl_objectives = getattr(all_args, "morl_objectives", None)
+        if self.use_morl and morl_objectives is None:
+            morl_objectives = "default"
+
         mdp_params = {"layout_name": all_args.layout_name, "start_order_list": None}
         # MARK: use reward shaping
         mdp_params.update({"rew_shaping_params": BASE_REW_SHAPING_PARAMS})
@@ -545,7 +553,7 @@ class Overcooked(gym.Env):
             "num_initial_state": all_args.num_initial_state,
             "replay_return_threshold": all_args.replay_return_threshold,
             # MORL: opt-in via --morl_objectives. Absent/None => scalar-reward
-            "objectives": getattr(all_args, "morl_objectives", None),
+            "objectives": morl_objectives,
         }
         self.mdp_fn = lambda: OvercookedGridworld.from_layout_name(**mdp_params)
         self.base_mdp = self.mdp_fn()
@@ -556,6 +564,8 @@ class Overcooked(gym.Env):
             ),
             **env_params,
         )
+        if self.use_morl:
+            self._setup_morl(all_args)
         self.mlp = MediumLevelPlanner.from_pickle_or_compute(
             mdp=self.base_mdp, mlp_params=NO_COUNTERS_PARAMS, force_compute=False
         )
@@ -634,6 +644,96 @@ class Overcooked(gym.Env):
         for s in weight.split(","):
             w.append(float(s))
         return np.array(w)
+
+    # ------------------------------------------------------------------
+    # MORL
+    # ------------------------------------------------------------------
+
+    def _setup_morl(self, all_args):
+        """Resolve the preference vector and per-episode MORL bookkeeping.
+
+        Called from `__init__` only when `--use_morl` is set, and only after
+        `self.base_env` exists, since the objective vector it built determines
+        the expected weight length.
+        """
+        objectives = self.base_env.objectives
+        assert objectives is not None, (
+            "--use_morl requires an objective vector; --morl_objectives resolved to None"
+        )
+
+        self.morl_objective_names = objectives.names
+        num_objectives = len(objectives)
+        self.morl_reward_scale = float(getattr(all_args, "morl_reward_scale", 1.0))
+
+        weights = getattr(all_args, "morl_weights", "") or ""
+        if weights.strip():
+            self.morl_weights = self.string2array(weights)
+        else:
+            self.morl_weights = np.full(num_objectives, 1.0 / num_objectives)
+        assert len(self.morl_weights) == num_objectives, (
+            f"--morl_weights has {len(self.morl_weights)} entries but "
+            f"--morl_objectives resolved to {num_objectives}: {self.morl_objective_names}"
+        )
+
+        self.morl_adaptive_weights = getattr(all_args, "morl_adaptive_weights", False)
+        self.morl_weight_update_interval = max(
+            1, int(getattr(all_args, "morl_weight_update_interval", 1))
+        )
+        if self.morl_adaptive_weights:
+            # The initial weights double as the mirror descent target t, so
+            # --morl_weights sets the objective mix the update steers towards.
+            self.morl_preferences = MirrorDescentPreferences(
+                num_objectives=num_objectives,
+                eta_min=getattr(all_args, "morl_eta_min", 1e-4),
+                eta_max=getattr(all_args, "morl_eta_max", 5e-3),
+                target=self.morl_weights,
+                floor=getattr(all_args, "morl_weight_floor", 0.01),
+            )
+            self.morl_weights = self.morl_preferences.weights
+        else:
+            self.morl_preferences = None
+
+        self.cumulative_morl_reward = np.zeros(self.num_agents)
+        morl_dict = {
+            "objectives": self.morl_objective_names,
+            "weights": self.morl_weights.tolist(),
+            "scale": self.morl_reward_scale,
+            "adaptive": self.morl_adaptive_weights,
+        }
+        logger.debug(
+            "morl reward:\n" + pprint.pformat(morl_dict, compact=True, width=120)
+        )
+
+    def _morl_reward(self, vec_r_by_agent):
+        """Scalarize this step's reward vector into one reward per player.
+
+        Args:
+            vec_r_by_agent: `(num_players, K)` from `info["vec_r_by_agent"]`,
+                indexed by *base env player slot*, not by ego index.
+
+        Returns:
+            A `(num_players,)` float array in base env player order. The
+            `agent_idx == 1` swap at the end of `step()` handles ego ordering,
+            so no swap is needed here -- unlike HSP, whose w0/w1 belong to the
+            ego agent rather than to the player slot.
+        """
+        return self.morl_reward_scale * np.asarray(vec_r_by_agent) @ self.morl_weights
+
+    def _update_morl_weights(self):
+        """Advance the preference weights by one mirror descent step.
+
+        No-op unless `--morl_adaptive_weights`. `g` is the episode-to-date share
+        of each objective, which `ObjectiveVector.proportions` reports as uniform
+        while nothing has happened yet, making early-episode updates no-ops
+        rather than divisions by zero.
+        """
+        if self.morl_preferences is None:
+            return
+        if self.step_count % self.morl_weight_update_interval != 0:
+            return
+        self.morl_weights = self.morl_preferences.update(
+            self.base_env.objectives.proportions()
+        )
 
     def _action_convertor(self, action):
         return [a[0] for a in list(action)]
@@ -866,6 +966,16 @@ class Overcooked(gym.Env):
                 # shaped_reward_p1 = (
                 #     hidden_reward[1] + self.reward_shaping_factor * dense_reward[1]
                 # )
+            elif self.use_morl:
+                #! the objective vector fully replaces sparse + shaped reward.
+                # The sparse reward still reaches the agent through the
+                # `task_completion` objective; the remaining objectives are
+                # already dense, so no hand-crafted shaping is applied.
+                morl_reward = self._morl_reward(info["vec_r_by_agent"])
+                shaped_reward_p0 = morl_reward[0]
+                shaped_reward_p1 = morl_reward[1]
+                self.cumulative_morl_reward += morl_reward
+                self._update_morl_weights()
             else:
                 dense_reward = info["shaped_r_by_agent"]
                 shaped_reward_p0 = (
@@ -940,6 +1050,11 @@ class Overcooked(gym.Env):
                 self._store_trajectory()
             if self.use_hsp:
                 info["episode"]["ep_hidden_r_by_agent"] = self.cumulative_hidden_reward
+            if self.use_morl:
+                cumulative_morl_reward = self.cumulative_morl_reward
+                info["episode"]["ep_morl_r_by_agent"] = cumulative_morl_reward.copy()
+                info["episode"]["ep_morl_r"] = cumulative_morl_reward.sum()
+                info["episode"]["ep_morl_weights"] = self.morl_weights.copy()
             info["bad_transition"] = True
         else:
             info["bad_transition"] = False
@@ -1014,6 +1129,12 @@ class Overcooked(gym.Env):
 
         if self.use_hsp:
             self.cumulative_hidden_reward = np.zeros(2)
+
+        if self.use_morl:
+            self.cumulative_morl_reward = np.zeros(self.num_agents)
+            if self.morl_preferences is not None:
+                self.morl_preferences.reset()
+                self.morl_weights = self.morl_preferences.weights
 
         share_obs = self._gen_share_observation(self.base_env.state)
         available_actions = self._get_available_actions()

@@ -190,6 +190,7 @@ class OvercookedRunner(Runner):
                                 )
                         env_infos["ep_sparse_r"].append(info["episode"]["ep_sparse_r"])
                         env_infos["ep_shaped_r"].append(info["episode"]["ep_shaped_r"])
+                        self._collect_objective_infos(env_infos, info)
                 self.log_train(train_infos, total_num_steps)
                 self.log_env(env_infos, total_num_steps)
                 if self.use_wandb:
@@ -197,6 +198,10 @@ class OvercookedRunner(Runner):
                 logger.info(
                     f'average sparse rewards is {np.mean(env_infos["ep_sparse_r"]):.3f}'
                 )
+                if "ep_morl_r" in env_infos:
+                    logger.info(
+                        f'average morl rewards is {np.mean(env_infos["ep_morl_r"]):.3f}'
+                    )
             # eval
             if (
                 episode % self.eval_interval == 0
@@ -206,6 +211,36 @@ class OvercookedRunner(Runner):
                 self.eval(total_num_steps)
             e_time = time.time()
             logger.trace(f"Post update models time: {e_time - s_time:.3f}s")
+
+    def _collect_objective_infos(self, env_infos, info, prefix: str = ""):
+        """Accumulate the MORL objective breakdown for one finished episode.
+
+        Returns immediately unless the env was built with `--morl_objectives`,
+        so every other algorithm logs exactly what it logged before.
+        """
+        episode = info["episode"]
+        if "ep_vec_r_by_agent" not in episode:
+            return
+
+        vec_r = np.asarray(episode["ep_vec_r_by_agent"])
+        objective_names = episode["ep_objective_names"]
+
+        for k, name in enumerate(objective_names):
+            env_infos[f"{prefix}ep_obj_{name}"].append(vec_r[:, k].sum())
+            for a in range(self.num_agents):
+                env_infos[f"{prefix}ep_obj_{name}_by_agent{a}"].append(vec_r[a, k])
+
+        # Present only when the objective vector is also the reward (--use_morl).
+        if "ep_morl_r" not in episode:
+            return
+
+        env_infos[f"{prefix}ep_morl_r"].append(episode["ep_morl_r"])
+        for a in range(self.num_agents):
+            env_infos[f"{prefix}ep_morl_r_by_agent{a}"].append(
+                episode["ep_morl_r_by_agent"][a]
+            )
+        for k, name in enumerate(objective_names):
+            env_infos[f"{prefix}ep_morl_w_{name}"].append(episode["ep_morl_weights"][k])
 
     def warmup(self):
         # reset env
@@ -435,6 +470,7 @@ class OvercookedRunner(Runner):
             eval_env_infos["eval_ep_shaped_r"].append(
                 eval_info["episode"]["ep_shaped_r"]
             )
+            self._collect_objective_infos(eval_env_infos, eval_info, prefix="eval_")
 
         eval_env_infos["eval_average_episode_rewards"] = np.sum(
             eval_average_episode_rewards, axis=0

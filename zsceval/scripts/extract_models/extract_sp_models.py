@@ -10,7 +10,17 @@ wandb_name = os.getenv("WANDB_ENTITY")
 POLICY_POOL_PATH = os.getenv("POLICY_POOL")
 
 
-def extract_sp_S1_models(layout, exp, env):
+def extract_sp_S1_models(layout, exp, env, metric: str = "ep_sparse_r"):
+    """Pull init/mid/final actor checkpoints for every finished stage-1 run.
+
+    Args:
+        layout: Overcooked layout / GRF scenario name.
+        exp: `experiment_name` the runs were logged under, e.g. "sp" or "morl".
+        env: W&B project, e.g. "overcooked".
+        metric: History key the checkpoints are ranked by. Defaults to the
+            sparse return; MORL agents should use "ep_morl_r", the reward
+            they were actually trained on.
+    """
     api = wandb.Api()
 
     if "overcooked" in env.lower():
@@ -43,10 +53,20 @@ def extract_sp_S1_models(layout, exp, env):
         if history.empty:
             continue
 
-        history = history[["_step", "ep_sparse_r"]]
+        if metric not in history:
+            logger.warning(f"Run {run_id} has no {metric!r} history, skipping")
+            continue
+
+        # Eval-only rows leave the training metrics NaN, which would poison the
+        # interpolation below.
+        history = history[["_step", metric]].dropna()
+
+        if history.empty:
+            continue
+
         steps = history["_step"].to_numpy().astype(int)
-        ep_sparse_r = history["ep_sparse_r"].to_numpy()
-        final_ep_sparse_r = np.mean(ep_sparse_r[-5:])
+        scores = history[metric].to_numpy()
+        final_score = np.mean(scores[-5:])
 
         if run.config["seed"] in seeds:
             continue
@@ -54,7 +74,7 @@ def extract_sp_S1_models(layout, exp, env):
         i = run.config["seed"]
 
         logger.info(
-            f"sp{i} Run: {run_id} Seed: {run.config['seed']} Return {final_ep_sparse_r}"
+            f"sp{i} Run: {run_id} Seed: {run.config['seed']} {metric} {final_score}"
         )
 
         seeds.add(run.config["seed"])
@@ -76,32 +96,32 @@ def extract_sp_S1_models(layout, exp, env):
         max_steps = max(steps)
 
         new_steps = [steps[0]]
-        new_ep_sparse_r = [ep_sparse_r[0]]
+        new_scores = [scores[0]]
 
-        for s, er in zip(steps[1:], ep_sparse_r[1:]):
+        for s, er in zip(steps[1:], scores[1:]):
             l_s = new_steps[0]
-            l_er = new_ep_sparse_r[-1]
+            l_er = new_scores[-1]
             for w in range(l_s + 1, s, 100):
                 new_steps.append(w)
-                new_ep_sparse_r.append(l_er + (er - l_er) * (w - l_s) / (s - l_s))
+                new_scores.append(l_er + (er - l_er) * (w - l_s) / (s - l_s))
 
         steps = new_steps
-        ep_sparse_r = new_ep_sparse_r
+        scores = new_scores
 
         # select checkpoints
         selected_pts = dict(init=0, mid=-1, final=max_steps)
-        mid_ep_sparse_r = final_ep_sparse_r / 2
+        mid_score = final_score / 2
         min_delta = 1e9
 
-        for s, score in zip(steps, ep_sparse_r):
-            if min_delta > abs(mid_ep_sparse_r - score):
-                min_delta = abs(mid_ep_sparse_r - score)
+        for s, score in zip(steps, scores):
+            if min_delta > abs(mid_score - score):
+                min_delta = abs(mid_score - score)
                 selected_pts["mid"] = s
 
         selected_pts = {
             k: int(v / max_steps * max_actor_versions) for k, v in selected_pts.items()
         }
-        sparse_r_dict = dict(init=0, mid=mid_ep_sparse_r, final=final_ep_sparse_r)
+        score_dict = dict(init=0, mid=mid_score, final=final_score)
 
         for tag, exp_version in selected_pts.items():
             version = actor_versions[0]
@@ -109,7 +129,7 @@ def extract_sp_S1_models(layout, exp, env):
                 if abs(exp_version - version) > abs(exp_version - actor_version):
                     version = actor_version
             logger.info(
-                f"sp{i}: {tag} Expected: {exp_version} {sparse_r_dict[tag]} Found: {version}"
+                f"sp{i}: {tag} Expected: {exp_version} {score_dict[tag]} Found: {version}"
             )
             ckpt = actor_pts[version]
             tmp_dir = f"tmp/{layout}/{exp}"
@@ -155,8 +175,13 @@ if __name__ == "__main__":
     hostname = socket.gethostname()
     exp_names = {"random0": "sp", "random3_m": "sp"}
 
+    # Optional overrides so non-`sp` stage-1 agents can be extracted:
+    #   extract_sp_models.py random0 overcooked morl ep_morl_r
+    exp_override = sys.argv[3] if len(sys.argv) > 3 else None
+    metric = sys.argv[4] if len(sys.argv) > 4 else "ep_sparse_r"
+
     logger.info(f"hostname: {hostname}")
     for l in layout:
-        exp = exp_names[l]
-        logger.info(f"Extracting {exp} for {l}")
-        extract_sp_S1_models(l, exp, env)
+        exp = exp_override or exp_names[l]
+        logger.info(f"Extracting {exp} for {l} ranked by {metric}")
+        extract_sp_S1_models(l, exp, env, metric=metric)
