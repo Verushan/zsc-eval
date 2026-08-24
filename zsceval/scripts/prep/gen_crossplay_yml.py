@@ -35,6 +35,13 @@ POLICY_POOL_DIR = os.getenv("POLICY_POOL")
 ARMS = ["bench_sp", "bench_sparse", "bench_morl", "bench_morl_ad"]
 ARM_SEEDS = [1, 2, 3]
 
+# Arms for which the last checkpoint is not the best one the run passed through,
+# so the benchmark also carries the peak-sparse checkpoint written by
+# extract_models/extract_peak_models.py. A reward whose own optimum drifts away
+# from the task's would otherwise be scored only on where it ended up, which
+# measures the end of the run rather than what the reward could reach.
+PEAK_ARMS = ["bench_morl", "bench_morl_ad"]
+
 # The stage-2 FCP agent already in the pool.
 S2_EXP = "fcp-S2-s16"
 S2_SEEDS = [1, 2, 3, 4, 5]
@@ -59,18 +66,24 @@ ENTRY = """\
 """
 
 
-def entries(layout, arm_seeds=None):
+def entries(layout, arm_seeds=None, peak_arms=None):
     """(name, policy_config, actor_path) for every policy in the pool."""
     out = []
+    peak_arms = PEAK_ARMS if peak_arms is None else peak_arms
     for arm in ARMS:
         for seed in arm_seeds or ARM_SEEDS:
-            out.append(
-                (
-                    f"{arm}_s{seed}",
-                    "mlp_policy_config.pkl",
-                    osp.join(layout, "fcp", "s1", arm, f"sp{seed}_final_actor.pt"),
+            tags = ["final"] + (["peak"] if arm in peak_arms else [])
+            for tag in tags:
+                # `_final` keeps the bare arm name so the common case reads
+                # cleanly; only the extra checkpoint carries a suffix.
+                suffix = "" if tag == "final" else f"_{tag}"
+                out.append(
+                    (
+                        f"{arm}_s{seed}{suffix}",
+                        "mlp_policy_config.pkl",
+                        osp.join(layout, "fcp", "s1", arm, f"sp{seed}_{tag}_actor.pt"),
+                    )
                 )
-            )
     for seed in S2_SEEDS:
         out.append(
             (
@@ -105,6 +118,13 @@ def main():
         help=f"Seeds trained for each arm (default {ARM_SEEDS}).",
     )
     parser.add_argument(
+        "--peak_arms",
+        nargs="*",
+        default=None,
+        help=f"Arms that also contribute their peak-sparse checkpoint (default {PEAK_ARMS}). "
+        "Pass with no values to include none.",
+    )
+    parser.add_argument(
         "--skip_missing",
         action="store_true",
         help="Drop entries whose .pt is absent instead of failing. Useful while "
@@ -118,7 +138,7 @@ def main():
 
     written, skipped = [], []
     with open(yml_path, "w", encoding="utf-8") as yml:
-        for name, config, actor in entries(args.layout, args.arm_seeds):
+        for name, config, actor in entries(args.layout, args.arm_seeds, args.peak_arms):
             if not osp.exists(osp.join(POLICY_POOL_DIR, actor)):
                 if args.skip_missing:
                     skipped.append(name)
