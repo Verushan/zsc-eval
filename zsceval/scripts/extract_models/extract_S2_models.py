@@ -67,6 +67,24 @@ def extract_pop_S2_models(layout, algo, exp, env, percentile=0.8):
     runs = list(runs)
     run_ids = [r.id for r in runs]
     logger.info(f"num of runs: {len(runs)}")
+
+    # Checkpoints are written to `{seed}.pt`, so two finished runs sharing a seed
+    # silently overwrite each other and which one survives depends only on the
+    # order W&B returned them in. That happened once already: a stale copy of
+    # train_morl_stage_2.sh left a second full run per seed, and the arm ended up
+    # with checkpoints picked from a 5-point history while every other arm used a
+    # 79-point one. Tag the runs you do not want with 'unused' -- the filter above
+    # already drops those.
+    seeds = [r.config["seed"] for r in runs]
+    dupes = sorted({s for s in seeds if seeds.count(s) > 1})
+    if dupes:
+        detail = ", ".join(
+            f"{r.id}(seed={r.config['seed']})" for r in runs if r.config["seed"] in dupes
+        )
+        raise RuntimeError(
+            f"{exp}: multiple finished runs for seed(s) {dupes}: {detail}. "
+            "Tag the unwanted ones 'unused' in W&B and re-run."
+        )
     for i, run_id in enumerate(run_ids):
         run = runs[i]
         seed = run.config["seed"]
@@ -114,6 +132,15 @@ if __name__ == "__main__":
         "-a", "--algo", "--algorithm", type=str, action="append", required=True
     )
     parser.add_argument("-p", type=float, help="percentile", default=0.8)
+    parser.add_argument(
+        "--exp",
+        action="append",
+        default=None,
+        help="Experiment name to extract instead of the built-in ALG_EXPS list. "
+        "Repeatable. Needed for stage-2 runs whose experiment name is not one of "
+        "the pipeline's fixed `{algo}-S2-s{size}` names -- the MORL arms, for "
+        "instance, are logged as `fcp-S2-bench_morl_ad`.",
+    )
 
     args = parser.parse_args()
     layout = args.layout
@@ -173,6 +200,10 @@ if __name__ == "__main__":
         ],
         "cole": ["cole-S2-s50", "cole-S2-s75"],
     }
+    if args.exp:
+        ALG_EXPS = {algo: list(args.exp) for algo in algorithms}
+
+    MAX_ATTEMPTS = 5
 
     hostname = socket.gethostname()
     logger.info(f"hostname: {hostname}")
@@ -180,6 +211,7 @@ if __name__ == "__main__":
         for algo in algorithms:
             logger.info(f"for layout {l}")
             i = 0
+            attempts = 0
             # for exp in ALG_EXPS[algo]:
             #     extract_pop_S2_models(l, algo, exp, args.env, percentile)
             while i < len(ALG_EXPS[algo]):
@@ -188,5 +220,14 @@ if __name__ == "__main__":
                     extract_pop_S2_models(l, algo, exp, args.env, percentile)
                 except Exception as e:
                     logger.error(e)
+                    # The retry exists for flaky W&B calls, but without a bound a
+                    # permanent error (wrong exp name, missing metric) spins here
+                    # forever inside a batch job.
+                    attempts += 1
+                    if attempts >= MAX_ATTEMPTS:
+                        logger.error(f"giving up on {exp} after {attempts} attempts")
+                        attempts = 0
+                        i += 1
                 else:
+                    attempts = 0
                     i += 1

@@ -46,6 +46,12 @@ PEAK_ARMS = ["bench_morl", "bench_morl_ad"]
 S2_EXP = "fcp-S2-s16"
 S2_SEEDS = [1, 2, 3, 4, 5]
 
+# Stage-2 agents trained by shell/train_morl_stage_2.sh, one per arm: the FCP
+# best-response agent for a population raised on that arm's reward. These are
+# what answer "does the pipeline fix MORL's zero-shot deficit", so they have to
+# be in the same matrix as the stage-1 arms they came from.
+S2_ARM_SEEDS = [1, 2, 3]
+
 # Held-out partners drawn from the pre-existing stage-1 pool. Seeds 1 and 6 come
 # from 1e7-step runs (competent partners), 17 and 20 from 1e6-step runs (partners
 # that play a plausible but much weaker game) -- the spread is the point, since a
@@ -66,7 +72,9 @@ ENTRY = """\
 """
 
 
-def entries(layout, arm_seeds=None, peak_arms=None):
+def entries(
+    layout, arm_seeds=None, peak_arms=None, s2_arms=None, s2_arm_seeds=None, s2_suffix=""
+):
     """(name, policy_config, actor_path) for every policy in the pool."""
     out = []
     peak_arms = PEAK_ARMS if peak_arms is None else peak_arms
@@ -92,6 +100,15 @@ def entries(layout, arm_seeds=None, peak_arms=None):
                 osp.join(layout, "fcp", "s2", S2_EXP, f"{seed}.pt"),
             )
         )
+    for arm in s2_arms or []:
+        for seed in s2_arm_seeds or S2_ARM_SEEDS:
+            out.append(
+                (
+                    f"s2_{arm}_s{seed}",
+                    "rnn_policy_config.pkl",
+                    osp.join(layout, "fcp", "s2", f"fcp-S2-{arm}{s2_suffix}", f"{seed}.pt"),
+                )
+            )
     for seed in HELDOUT_SEEDS:
         for tag in HELDOUT_TAGS:
             out.append(
@@ -125,6 +142,27 @@ def main():
         "Pass with no values to include none.",
     )
     parser.add_argument(
+        "--s2_arms",
+        nargs="*",
+        default=[],
+        help="Arms whose stage-2 agent (fcp-S2-{arm}) joins the pool, e.g. "
+        "bench_sp bench_morl_ad. Empty by default so the stage-1-only benchmark "
+        "reproduces unchanged.",
+    )
+    parser.add_argument(
+        "--s2_arm_seeds",
+        nargs="+",
+        type=int,
+        default=None,
+        help=f"Stage-2 seeds per arm (default {S2_ARM_SEEDS}).",
+    )
+    parser.add_argument(
+        "--s2_suffix",
+        default="",
+        help="Experiment-name suffix the stage-2 runs were trained with, e.g. "
+        "'-pilot'. Must match train_morl_stage_2.sh's 6th argument.",
+    )
+    parser.add_argument(
         "--skip_missing",
         action="store_true",
         help="Drop entries whose .pt is absent instead of failing. Useful while "
@@ -138,7 +176,14 @@ def main():
 
     written, skipped = [], []
     with open(yml_path, "w", encoding="utf-8") as yml:
-        for name, config, actor in entries(args.layout, args.arm_seeds, args.peak_arms):
+        for name, config, actor in entries(
+            args.layout,
+            args.arm_seeds,
+            args.peak_arms,
+            args.s2_arms,
+            args.s2_arm_seeds,
+            args.s2_suffix,
+        ):
             if not osp.exists(osp.join(POLICY_POOL_DIR, actor)):
                 if args.skip_missing:
                     skipped.append(name)
