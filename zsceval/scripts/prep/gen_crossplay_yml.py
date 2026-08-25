@@ -24,6 +24,7 @@ rather than failing quietly, but it is easy to get backwards.
 """
 
 import argparse
+import glob
 import os
 import os.path as osp
 
@@ -62,6 +63,15 @@ HELDOUT_EXP = "sp"
 HELDOUT_SEEDS = [1, 6, 17, 20]
 HELDOUT_TAGS = ["mid", "final"]
 
+# ZSC-Eval's own held-out partners: HSP bias agents, trained by
+# shell/train_bias_agents.sh on an enumerated set of biased reward vectors. The
+# w0 policy is the biased one and the only half worth evaluating against -- w1
+# is a plain sparse-reward partner. These are what the benchmark intends, and
+# unlike the `sp` pool above they can be produced for any layout, which is what
+# makes a cross-layout comparison possible at all.
+HSP_EXP = "hsp-s1"
+HSP_TAGS = ["final"]
+
 ENTRY = """\
 {name}:
     policy_config_path: {layout}/policy_config/{config}
@@ -73,7 +83,16 @@ ENTRY = """\
 
 
 def entries(
-    layout, arm_seeds=None, peak_arms=None, s2_arms=None, s2_arm_seeds=None, s2_suffix=""
+    layout,
+    arm_seeds=None,
+    peak_arms=None,
+    s2_arms=None,
+    s2_arm_seeds=None,
+    s2_suffix="",
+    heldout="sp",
+    hsp_partners=None,
+    hsp_exp=HSP_EXP,
+    hsp_tags=None,
 ):
     """(name, policy_config, actor_path) for every policy in the pool."""
     out = []
@@ -109,17 +128,30 @@ def entries(
                     osp.join(layout, "fcp", "s2", f"fcp-S2-{arm}{s2_suffix}", f"{seed}.pt"),
                 )
             )
-    for seed in HELDOUT_SEEDS:
-        for tag in HELDOUT_TAGS:
-            out.append(
-                (
-                    f"heldout_sp{seed}_{tag}",
-                    "mlp_policy_config.pkl",
-                    osp.join(
-                        layout, "fcp", "s1", HELDOUT_EXP, f"sp{seed}_{tag}_actor.pt"
-                    ),
+    if heldout in ("sp", "both"):
+        for seed in HELDOUT_SEEDS:
+            for tag in HELDOUT_TAGS:
+                out.append(
+                    (
+                        f"heldout_sp{seed}_{tag}",
+                        "mlp_policy_config.pkl",
+                        osp.join(
+                            layout, "fcp", "s1", HELDOUT_EXP, f"sp{seed}_{tag}_actor.pt"
+                        ),
+                    )
                 )
-            )
+    if heldout in ("hsp", "both"):
+        for i in hsp_partners or []:
+            for tag in hsp_tags or HSP_TAGS:
+                out.append(
+                    (
+                        f"heldout_hsp{i}_{tag}",
+                        "mlp_policy_config.pkl",
+                        osp.join(
+                            layout, "hsp", "s1", hsp_exp, f"hsp{i}_{tag}_w0_actor.pt"
+                        ),
+                    )
+                )
     return out
 
 
@@ -163,12 +195,65 @@ def main():
         "'-pilot'. Must match train_morl_stage_2.sh's 6th argument.",
     )
     parser.add_argument(
+        "--heldout",
+        choices=["sp", "hsp", "both"],
+        default="sp",
+        help="Which held-out partner set defines the ZSC metric. 'sp' is the "
+        "pre-existing self-play pool (random0 only); 'hsp' is ZSC-Eval's own "
+        "bias agents, which exist for any layout you train them on.",
+    )
+    parser.add_argument(
+        "--hsp_partners",
+        nargs="*",
+        default=None,
+        help="HSP agent indices to use as partners, or 'auto' to take every "
+        "hsp*_final_w0_actor.pt present in the pool.",
+    )
+    parser.add_argument(
+        "--hsp_exp",
+        default=HSP_EXP,
+        help=f"HSP experiment directory under {{layout}}/hsp/s1 (default {HSP_EXP}).",
+    )
+    parser.add_argument(
+        "--hsp_tags",
+        nargs="+",
+        default=None,
+        help=f"Checkpoint tags for HSP partners (default {HSP_TAGS}).",
+    )
+    parser.add_argument(
         "--skip_missing",
         action="store_true",
         help="Drop entries whose .pt is absent instead of failing. Useful while "
         "only some arms have finished training.",
     )
     args = parser.parse_args()
+
+    # 'auto' globs the pool so the partner set follows whatever finished
+    # training, rather than a list that silently drifts out of date.
+    hsp_partners = args.hsp_partners
+    if hsp_partners == ["auto"] or hsp_partners == "auto":
+        pattern = osp.join(
+            POLICY_POOL_DIR, args.layout, "hsp", "s1", args.hsp_exp, "hsp*_final_w0_actor.pt"
+        )
+        found = sorted(
+            int(osp.basename(f).split("_")[0][3:]) for f in glob.glob(pattern)
+        )
+        logger.info(f"--hsp_partners auto matched {len(found)} agents: {found}")
+        hsp_partners = found
+
+    # An empty HSP partner set is not a smaller evaluation, it is no evaluation:
+    # the ZSC columns would be averages over nothing, and the run only reveals
+    # that after the cross-play pass has been paid for. `auto` hits this when the
+    # pool has not been extracted yet, a bare --heldout hsp whenever the partner
+    # list is simply forgotten.
+    if args.heldout in ("hsp", "both") and not hsp_partners:
+        raise SystemExit(
+            f"--heldout {args.heldout} needs partners, but none were resolved. "
+            f"Pass --hsp_partners auto once "
+            f"{osp.join(POLICY_POOL_DIR, args.layout, 'hsp', 's1', args.hsp_exp)} "
+            "has been populated by extract_bias_agents_models.py, or list the "
+            "indices explicitly."
+        )
 
     yml_dir = osp.join(POLICY_POOL_DIR, args.layout, "morl_benchmark")
     os.makedirs(yml_dir, exist_ok=True)
@@ -183,6 +268,10 @@ def main():
             args.s2_arms,
             args.s2_arm_seeds,
             args.s2_suffix,
+            args.heldout,
+            hsp_partners,
+            args.hsp_exp,
+            args.hsp_tags,
         ):
             if not osp.exists(osp.join(POLICY_POOL_DIR, actor)):
                 if args.skip_missing:
@@ -196,6 +285,12 @@ def main():
 
     if skipped:
         logger.warning(f"skipped {len(skipped)} missing policies: {skipped}")
+    # --skip_missing is meant to tolerate a few absent arms, not to turn "nothing
+    # is extracted yet" into a valid empty pool that cross_play.py then loads.
+    if not written:
+        raise SystemExit(
+            f"no policies resolved for {args.layout}; wrote nothing to {yml_path}"
+        )
     logger.success(f"wrote {len(written)} policies to {yml_path}")
     print(yml_path)
 

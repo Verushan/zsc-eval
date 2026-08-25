@@ -7,7 +7,12 @@ import wandb
 from loguru import logger
 
 wandb_name = os.getenv("WANDB_ENTITY")
-POLICY_POOL_PATH = "../policy_pool"
+# Every other extractor resolves the pool from $POLICY_POOL. The upstream
+# relative path only lands in the right place when the cwd happens to be a
+# subdirectory of scripts/overcooked, so extracting from scripts/ (as the
+# pipelines do) silently filed the agents where gen_crossplay_yml.py cannot
+# see them.
+POLICY_POOL_PATH = os.getenv("POLICY_POOL", "../policy_pool")
 
 def extract_sp_S1_models(layout, exp, env="Overcooked"):
     api = wandb.Api()
@@ -121,8 +126,15 @@ if __name__ == "__main__":
 
     env = "overcooked"
 
-    if len(sys.argv) == 3:
+    if len(sys.argv) >= 3:
         env = sys.argv[2]
+
+    # Optional third positional: the W&B experiment_name to extract. The map
+    # below says "hsp-s1" while shell/train_bias_agents.sh writes "hsp-S1", and
+    # the W&B filter is case-sensitive, so the default pair does not actually
+    # match. That script now defaults to "hsp-s1"; this override is for runs
+    # under any other name (a reduced pilot, say).
+    exp_override = sys.argv[3] if len(sys.argv) >= 4 else None
 
     assert layout in [
         "random0",
@@ -172,6 +184,6 @@ if __name__ == "__main__":
     # logger.add(f"./extract_log/extract_{layout}_hsp_S1_models.log")
     # logger.info(f"hostname: {hostname}")
     for l in layout:
-        exp = exp_names[l]
+        exp = exp_override or exp_names[l]
         logger.info(f"Extracting {exp} for {l}")
         extract_sp_S1_models(l, exp, env)

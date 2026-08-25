@@ -1,22 +1,44 @@
 #!/bin/bash
+# Train the HSP bias agents ZSC-Eval evaluates against.
+#
+# Each seed selects one entry from an *enumerated* w0 candidate list -- the
+# product of the bracketed ranges below, filtered to at most 3 non-zero bias
+# terms (train_bias_agent.py:145). For random0 that list is exactly 30 long,
+# which is why the upstream seed range is 1..30: it is an exhaustive
+# enumeration, not a sample. A contiguous sub-range is therefore a poor subset
+# -- itertools.product varies the last dimensions fastest, so seeds 1-8 pin
+# pickup_onion_from_X and pickup_onion_from_O at zero. Pass a spread seed list
+# instead (e.g. "1 5 9 13 17 21 25 29"), and note that seeds beyond the
+# candidate count wrap and repeat.
+#
+# Usage: bash shell/train_bias_agents.sh <layout> [seeds] [num_env_steps] [exp]
+#   seeds           space-separated list, or "a-b" range. Default: the layout's
+#                   full enumeration, as upstream.
+#   num_env_steps   default 1e7 (upstream). The entropy horizons below are
+#                   scaled to it, keeping the upstream ratio -- without that a
+#                   short run never leaves the 0.2 exploration phase.
+#   exp             default "hsp-s1", which is what extract_bias_agents_models.py
+#                   looks for. Upstream sets "hsp-S1" here, and that extractor
+#                   cannot find it: the W&B filter is case-sensitive.
 env="Overcooked"
 
 layout=$1
+seeds_arg=$2
+num_env_steps=${3:-1e7}
+exp=${4:-"hsp-s1"}
 
 entropy_coefs="0.2 0.05 0.001"
-entropy_coef_horizons="0 6e6 1e7"
+mid_ratio=0.6
 if [[ "${layout}" == "small_corridor" ]]; then
-    entropy_coefs="0.2 0.05 0.001"
-    entropy_coef_horizons="0 8e6 1e7"
+    mid_ratio=0.8
 fi
-
-reward_shaping_horizon="1e7"
-num_env_steps="1e7"
+entropy_mid=$(awk -v s="${num_env_steps}" -v r="${mid_ratio}" 'BEGIN{printf "%.0f", s*r}')
+entropy_end=$(awk -v s="${num_env_steps}" 'BEGIN{printf "%.0f", s}')
+entropy_coef_horizons="0 ${entropy_mid} ${entropy_end}"
+reward_shaping_horizon=$(awk -v s="${num_env_steps}" 'BEGIN{printf "%.0f", s}')
 
 num_agents=2
 algo="mappo"
-stage="S1"
-exp="hsp-${stage}"
 
 
 if [[ "${layout}" == "random0" || "${layout}" == "random0_medium" || "${layout}" == "random1" || "${layout}" == "random3" || "${layout}" == "small_corridor" || "${layout}" == "unident_s" ]]; then
@@ -99,16 +121,35 @@ else
     seed_max=72
 fi
 
-for seed in $(seq ${seed_begin} ${seed_max});
+# The layout blocks above set seed_begin/seed_max to the full enumeration; the
+# optional argument overrides it with an explicit list or an "a-b" range.
+if [[ -z "${seeds_arg}" ]]; then
+    seeds=$(seq ${seed_begin} ${seed_max})
+elif [[ "${seeds_arg}" =~ ^[0-9]+-[0-9]+$ ]]; then
+    seeds=$(seq ${seeds_arg%-*} ${seeds_arg#*-})
+else
+    seeds="${seeds_arg}"
+fi
+
+# Envs per worker process, not a minibatch size. Upstream's 100 threads at
+# dummy 2 is 50 worker processes, which thrashes anything smaller than a
+# cluster node; throughput on this box peaks near 5.
+rollout_threads=${ROLLOUT_THREADS:-12}
+dummy=${DUMMY_BATCH_SIZE:-4}
+eval_threads=${HSP_EVAL_THREADS:-20}
+
+echo "layout ${layout}, exp ${exp}, steps ${num_env_steps}, entropy horizons ${entropy_coef_horizons}"
+echo "seeds: $(echo ${seeds} | tr '\n' ' ')"
+for seed in ${seeds};
 do
     echo "seed is ${seed}:"
     python train/train_bias_agent.py --env_name ${env} --algorithm_name ${algo} --experiment_name "${exp}" --layout_name ${layout} --num_agents ${num_agents} \
-    --seed ${seed} --n_training_threads $TRAINING_THREADS --n_rollout_threads 100 --dummy_batch_size 2  --episode_length 400 --num_env_steps ${num_env_steps} --reward_shaping_horizon ${reward_shaping_horizon} \
+    --seed ${seed} --n_training_threads $TRAINING_THREADS --n_rollout_threads ${rollout_threads} --dummy_batch_size ${dummy}  --episode_length 400 --num_env_steps ${num_env_steps} --reward_shaping_horizon ${reward_shaping_horizon} \
     --overcooked_version ${version} \
     --ppo_epoch 15 --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
     --use_hsp --w0 ${w0} --w1 ${w1} --share_policy --random_index \
     --cnn_layers_params "32,3,1,1 64,3,1,1 32,3,1,1" --use_recurrent_policy \
     --use_proper_time_limits \
-    --save_interval 25 --log_interval 10 --use_eval --eval_interval 20 --n_eval_rollout_threads 20 \
+    --save_interval 25 --log_interval 10 --use_eval --eval_interval 20 --n_eval_rollout_threads ${eval_threads} \
     --wandb_name $WANDB_ENTITY
 done
