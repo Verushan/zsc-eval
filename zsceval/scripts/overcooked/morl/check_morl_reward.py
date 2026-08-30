@@ -31,6 +31,13 @@ Checks
                      observation and the share observation, tracks it every step
                      under adaptive weights, and does not widen the observation
                      when the flag is off.
+8. ``policy_id_obs`` ``--use_agent_policy_id_obs`` shows the *actor* its
+                     partner's identity (``--use_agent_policy_id`` reaches only
+                     the critic), one-hots it correctly, and refuses a width that
+                     disagrees with the population the ids came from.
+
+Checks 7 and 8 cover the observation-space extensions rather than the reward
+path; they live here because this is the suite the pipelines run as a preflight.
 
 Usage:
     python zsceval/scripts/overcooked/morl/check_morl_reward.py
@@ -585,6 +592,116 @@ def check_obs_weights(
     return failures
 
 
+def check_policy_id_obs(
+    layout: str, horizon: int, scripts: Sequence[str]
+) -> List[str]:
+    """`--use_agent_policy_id_obs` shows the actor *its partner's* identity.
+
+    `--use_agent_policy_id` only reaches `_gen_share_observation`, i.e. the
+    centralised critic, so the policy itself cannot condition on who it is
+    playing with. This flag appends the identity to the actor observation as
+    well. It is an oracle upper bound rather than a zero-shot method: a held-out
+    partner has no id the agent was ever trained on.
+    """
+    failures = []
+
+    base = build_env(layout, horizon)
+    ob, _, _ = base.reset()
+    base_c = ob[0].shape[-1]
+
+    # -- scalar encoding, the convention the critic already uses --------------
+    env = build_env(layout, horizon, ["--use_agent_policy_id_obs"])
+    ob, _, _ = env.reset()
+    if ob[0].shape[-1] != base_c + 1:
+        failures.append(
+            f"scalar encoding gave {ob[0].shape[-1]} channels, expected {base_c} + 1"
+        )
+    if tuple(env.observation_space[0].shape) != tuple(ob[0].shape):
+        failures.append(
+            f"observation_space {tuple(env.observation_space[0].shape)} does not "
+            f"match the observation {tuple(ob[0].shape)}"
+        )
+    if not np.allclose(ob[0][..., base_c:], 0.0):
+        failures.append(
+            "an unloaded partner slot (-1.0 sentinel) must encode as zeros, got "
+            f"{ob[0][0, 0, base_c:].tolist()}"
+        )
+
+    # Each agent must see the *other* agent's id; its own is constant and, for
+    # the trainable agent, the sentinel.
+    env._set_agent_policy_id([0.25, 0.75])
+    ob, _, _ = env.reset()
+    seen = [float(ob[a][0, 0, base_c:][0]) / 255.0 for a in range(env.num_agents)]
+    if not np.isclose(seen[0], 0.75) or not np.isclose(seen[1], 0.25):
+        failures.append(
+            f"agents saw {seen} for ids [0.25, 0.75]; each must see its partner's id, "
+            "not its own"
+        )
+
+    # -- one-hot encoding ----------------------------------------------------
+    n = 4
+    env = build_env(
+        layout, horizon,
+        ["--use_agent_policy_id_obs", "--agent_policy_id_obs_dim", str(n)],
+    )  # fmt: skip
+    ob, _, _ = env.reset()
+    if ob[0].shape[-1] != base_c + n:
+        failures.append(
+            f"one-hot encoding gave {ob[0].shape[-1]} channels, expected {base_c} + {n}"
+        )
+    if tuple(env.observation_space[0].shape) != tuple(ob[0].shape):
+        failures.append("one-hot observation_space disagrees with the observation")
+
+    # policy_pool assigns id = (i + 1) / num_policies, so a width equal to the
+    # population size must recover i exactly.
+    for i in range(n):
+        env._set_agent_policy_id([-1.0, (i + 1) / n])
+        ob, _, _ = env.reset()
+        vec = ob[0][0, 0, base_c:] / 255.0
+        if vec.sum() != 1.0 or int(vec.argmax()) != i:
+            failures.append(
+                f"id {(i + 1) / n} should one-hot to index {i}, got {vec.tolist()}"
+            )
+
+    env._set_agent_policy_id([-1.0, -1.0])
+    ob, _, _ = env.reset()
+    if not np.allclose(ob[0][..., base_c:], 0.0):
+        failures.append("an unknown partner must be all-zeros under one-hot too")
+
+    # A width that disagrees with the pool the ids came from must fail loudly,
+    # not silently alias two partners onto one index.
+    env._set_agent_policy_id([-1.0, 1.6])
+    try:
+        env.reset()
+        failures.append(
+            "an out-of-range partner id was accepted; a mismatched "
+            "--agent_policy_id_obs_dim must raise"
+        )
+    except ValueError:
+        pass
+
+    # -- composes with the preference vector ---------------------------------
+    env = build_env(
+        layout, horizon,
+        [
+            "--use_morl", "--morl_objectives", "default", "--use_morl_obs_weights",
+            "--use_agent_policy_id_obs", "--agent_policy_id_obs_dim", str(n),
+        ],
+    )  # fmt: skip
+    k = env.morl_num_objectives
+    env._set_agent_policy_id([-1.0, 0.5])
+    ob, _, _ = env.reset()
+    if ob[0].shape[-1] != base_c + k + n:
+        failures.append(
+            f"both flags gave {ob[0].shape[-1]} channels, expected "
+            f"{base_c} + {k} + {n}"
+        )
+    elif not np.allclose(ob[0][0, 0, base_c : base_c + k] / 255.0, env.morl_weights):
+        failures.append("the weight block moved when the id block was added")
+
+    return failures
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -597,6 +714,7 @@ CHECKS = {
     "env_consistency": check_env_consistency,
     "mirror_descent": check_mirror_descent,
     "obs_weights": check_obs_weights,
+    "policy_id_obs": check_policy_id_obs,
 }
 
 

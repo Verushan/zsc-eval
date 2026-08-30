@@ -38,6 +38,30 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         action="store_true",
         help="Add policy id into share obs, default False",
     )
+    # --use_agent_policy_id feeds the partner's identity to the *centralised
+    # critic* only. The actor never sees it, so the policy cannot condition on
+    # who it is playing with at execution time -- which is what an oracle
+    # partner-conditioning experiment actually needs.
+    parser.add_argument(
+        "--use_agent_policy_id_obs",
+        default=False,
+        action="store_true",
+        help="Append the partner's identity to the actor's observation, not just the "
+        "critic's. Note this cannot generalise to unseen partners: it is an oracle "
+        "upper bound, not a zero-shot method.",
+    )
+    # policy_pool assigns id = (i + 1) / num_policies, so the same partner gets a
+    # DIFFERENT id in a pool of a different size, and neighbouring ids mean
+    # nothing but adjacency in the yml. One-hot removes both problems, at the
+    # cost of needing the population size up front.
+    parser.add_argument(
+        "--agent_policy_id_obs_dim",
+        type=int,
+        default=0,
+        help="Width of the partner-identity encoding in the actor observation. 0 keeps "
+        "the raw scalar id the critic uses; N > 0 one-hots it over N partners and must "
+        "equal the population size the ids were assigned from.",
+    )
     parser.add_argument(
         "--initial_reward_shaping_factor",
         type=float,

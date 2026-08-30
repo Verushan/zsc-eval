@@ -584,6 +584,19 @@ class Overcooked(gym.Env):
             "use_agent_policy_id", False
         )  # Add policy id for loaded policy
         self.agent_policy_id = [-1.0 for _ in range(self.num_agents)]
+        self.use_agent_policy_id_obs = dict(all_args._get_kwargs()).get(
+            "use_agent_policy_id_obs", False
+        )
+        self.agent_policy_id_obs_dim = int(
+            dict(all_args._get_kwargs()).get("agent_policy_id_obs_dim", 0) or 0
+        )
+        if self.agent_policy_id_obs_dim < 0:
+            raise ValueError(
+                f"--agent_policy_id_obs_dim must be >= 0, got {self.agent_policy_id_obs_dim}"
+            )
+        # Channels appended per *other* agent: one-hot when a width is given,
+        # otherwise the single scalar the critic already uses.
+        self._policy_id_width = self.agent_policy_id_obs_dim or 1
         self.use_timestep_feature = all_args.use_timestep_feature
         self.featurize_fn_ppo = lambda state: self.base_mdp.lossless_state_encoding(
             state,
@@ -768,6 +781,12 @@ class Overcooked(gym.Env):
                 obs_shape[1],
                 obs_shape[2] + self.morl_num_objectives,
             )
+        if self.use_agent_policy_id_obs:
+            obs_shape = (
+                obs_shape[0],
+                obs_shape[1],
+                obs_shape[2] + (self.num_agents - 1) * self._policy_id_width,
+            )
         high = np.ones(obs_shape) * float("inf")
         low = np.ones(obs_shape) * 0
         self.ppo_observation_space = gym.spaces.Box(
@@ -821,6 +840,59 @@ class Overcooked(gym.Env):
         """
         w = np.asarray(self.morl_weights, dtype=np.float32).reshape(1, 1, -1)
         return np.ones((*ob.shape[:2], self.morl_num_objectives), dtype=np.float32) * w * scale
+
+    def _encode_policy_id(self, policy_id):
+        """One partner's identity as a feature vector.
+
+        `policy_pool.load_population` assigns `id = (i + 1) / num_policies`, so
+        the raw scalar is a normalised *ordinal* -- partners adjacent in the yml
+        land adjacent in input space for no behavioural reason, and the same
+        partner changes id when the pool size changes. One-hot fixes both, which
+        is why `--agent_policy_id_obs_dim` should normally be set.
+
+        A partner slot with no policy loaded keeps the -1.0 sentinel and encodes
+        as all-zeros: "no known partner", which is what the trainable ego agent
+        sees in its own slot.
+        """
+        width = self._policy_id_width
+        out = np.zeros(width, dtype=np.float32)
+        if policy_id is None or policy_id < 0:
+            return out
+        if self.agent_policy_id_obs_dim == 0:
+            out[0] = float(policy_id)
+            return out
+        index = int(round(float(policy_id) * self.agent_policy_id_obs_dim)) - 1
+        if not 0 <= index < width:
+            raise ValueError(
+                f"partner policy id {policy_id} maps to index {index}, outside "
+                f"[0, {width}). --agent_policy_id_obs_dim must equal the number of "
+                "policies in the population yml the ids were assigned from"
+            )
+        out[index] = 1.0
+        return out
+
+    def _append_policy_id(self, obs, scale=255.0):
+        """Append each agent's *partners'* identities to its observation.
+
+        An agent's own id is useless to it -- it is constant, and for the
+        trainable agent it is the -1.0 sentinel -- so what gets appended to
+        agent `a` is every *other* agent's id.
+        """
+        out = []
+        for a, ob in enumerate(obs):
+            others = [
+                self._encode_policy_id(self.agent_policy_id[o])
+                for o in range(self.num_agents)
+                if o != a
+            ]
+            feat = np.concatenate(others).reshape(1, 1, -1)
+            planes = (
+                np.ones((*ob.shape[:2], feat.shape[-1]), dtype=np.float32)
+                * feat
+                * scale
+            )
+            out.append(np.concatenate([ob, planes], axis=-1))
+        return tuple(out)
 
     def _append_morl_weights(self, obs, scale=255.0):
         """Append the current `w` to each agent's observation.
@@ -1135,6 +1207,8 @@ class Overcooked(gym.Env):
             # _update_morl_weights() has already run for this transition, so the
             # agent observes the w that will scalarize its *next* reward.
             both_agents_ob = self._append_morl_weights(both_agents_ob)
+        if self.use_agent_policy_id_obs:
+            both_agents_ob = self._append_policy_id(both_agents_ob)
 
         return both_agents_ob, share_obs, reward, done, info, available_actions
 
@@ -1208,6 +1282,11 @@ class Overcooked(gym.Env):
 
         if self.use_morl_obs_weights:
             both_agents_ob = self._append_morl_weights(both_agents_ob)
+        if self.use_agent_policy_id_obs:
+            # PartialPolicyEnv.reset() calls _set_agent_policy_id before the inner
+            # reset, so the ids in hand here are the ones for the episode about
+            # to start, not the one that just ended.
+            both_agents_ob = self._append_policy_id(both_agents_ob)
 
         return both_agents_ob, share_obs, available_actions
 
