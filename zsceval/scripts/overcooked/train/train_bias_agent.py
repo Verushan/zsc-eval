@@ -196,8 +196,11 @@ def main(args):
         / all_args.algorithm_name
         / all_args.experiment_name
     )
-    if not run_dir.exists():
-        os.makedirs(str(run_dir))
+    # exist_ok, not a not-exists() guard: the HSP pipeline trains several seeds
+    # of one layout concurrently and they all share this path, so a test-then-
+    # create loses the race and kills a seed before wandb.init() -- which leaves
+    # no W&B run at all, only a traceback in the per-seed log.
+    os.makedirs(str(run_dir), exist_ok=True)
     all_args.run_dir = run_dir
 
     # wandb

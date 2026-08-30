@@ -412,22 +412,29 @@ class OvercookedRunner(Runner):
 
     def save(self, step, save_critic: bool = False):
         # logger.info(f"save hsp periodic_{step}.pt")
+        #
+        # save_dir is wandb.run.dir, but writing a file there is not enough to
+        # get it uploaded: wandb >= 0.13 only syncs files that were explicitly
+        # registered with wandb.save(). The shared runner has always called it;
+        # this one never did, so every bias-agent checkpoint stayed local and
+        # extract_bias_agents_models.py -- which reads the W&B API -- found an
+        # empty file list and died on `max() arg is an empty sequence`.
         for agent_id in range(self.num_agents):
             if self.use_single_network:
                 policy_model = self.trainer[agent_id].policy.model
-                torch.save(
-                    policy_model.state_dict(),
-                    str(self.save_dir) + f"/model_agent{agent_id}_periodic_{step}.pt",
-                )
+                model_path = str(self.save_dir) + f"/model_agent{agent_id}_periodic_{step}.pt"
+                torch.save(policy_model.state_dict(), model_path)
+                if self.use_wandb:
+                    wandb.save(model_path, base_path=str(self.save_dir))
             else:
                 policy_actor = self.trainer[agent_id].policy.actor
-                torch.save(
-                    policy_actor.state_dict(),
-                    str(self.save_dir) + f"/actor_agent{agent_id}_periodic_{step}.pt",
-                )
+                actor_path = str(self.save_dir) + f"/actor_agent{agent_id}_periodic_{step}.pt"
+                torch.save(policy_actor.state_dict(), actor_path)
+                if self.use_wandb:
+                    wandb.save(actor_path, base_path=str(self.save_dir))
                 if save_critic:
                     policy_critic = self.trainer[agent_id].policy.critic
-                    torch.save(
-                        policy_critic.state_dict(),
-                        str(self.save_dir) + f"/critic_agent{agent_id}_periodic_{step}.pt",
-                    )
+                    critic_path = str(self.save_dir) + f"/critic_agent{agent_id}_periodic_{step}.pt"
+                    torch.save(policy_critic.state_dict(), critic_path)
+                    if self.use_wandb:
+                        wandb.save(critic_path, base_path=str(self.save_dir))

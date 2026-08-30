@@ -1,10 +1,15 @@
+import glob
 import os
+import os.path as osp
+import shutil
 import socket
 import sys
 
 import numpy as np
 import wandb
 from loguru import logger
+
+from zsceval.utils.train_util import get_base_run_dir
 
 wandb_name = os.getenv("WANDB_ENTITY")
 # Every other extractor resolves the pool from $POLICY_POOL. The upstream
@@ -13,6 +18,35 @@ wandb_name = os.getenv("WANDB_ENTITY")
 # pipelines do) silently filed the agents where gen_crossplay_yml.py cannot
 # see them.
 POLICY_POOL_PATH = os.getenv("POLICY_POOL", "../policy_pool")
+
+def local_run_files(layout, exp, run_id, env="Overcooked", algorithm="mappo"):
+    """The run's own files/ directory on this machine, or None.
+
+    Bias agents train through the *separated* runner, whose save() wrote
+    checkpoints into wandb.run.dir without registering them via wandb.save().
+    wandb >= 0.13 only uploads registered files, so for every run trained before
+    that was fixed the W&B file list is empty and disk holds the only copy.
+
+    train_bias_agent.py passes dir=run_dir to wandb.init(), so the layout is
+    {results}/{env}/{layout}/{algorithm}/{exp}/wandb/run-{timestamp}-{run_id}/files.
+    """
+    pattern = osp.join(
+        get_base_run_dir(), env, layout, algorithm, exp, "wandb", f"run-*-{run_id}", "files"
+    )
+    matches = sorted(d for d in glob.glob(pattern) if osp.isdir(d))
+    return matches[-1] if matches else None
+
+
+def local_actor_versions(files_dir):
+    """Periodic checkpoint steps present on disk, from agent 0's files."""
+    versions = []
+    for path in glob.glob(osp.join(files_dir, "actor_agent0_periodic_*.pt")):
+        try:
+            versions.append(int(osp.basename(path).split("_")[-1][: -len(".pt")]))
+        except ValueError:
+            continue
+    return sorted(versions)
+
 
 def extract_sp_S1_models(layout, exp, env="Overcooked"):
     api = wandb.Api()
@@ -36,6 +70,7 @@ def extract_sp_S1_models(layout, exp, env="Overcooked"):
     run_ids = [r.id for r in runs]
     logger.info(f"num of runs: {len(runs)}")
     seeds = set()
+    missing = []
     num_agents = None
     for r_i, run_id in enumerate(run_ids):
         run = runs[r_i]
@@ -54,13 +89,35 @@ def extract_sp_S1_models(layout, exp, env="Overcooked"):
                 f"hsp{i} Run: {run_id} Seed: {run.config['seed']} Return {final_ep_sparse_r}"
             )
             seeds.add(run.config["seed"])
-            files = run.files()
-            actor_pts = [f for f in files if f.name.startswith("actor")]
-            actor_versions = [
-                eval(f.name.split("_")[-1].split(".pt")[0]) for f in actor_pts
-            ]
-            actor_pts = {v: p for v, p in zip(actor_versions, actor_pts)}
-            actor_versions = sorted(actor_versions)
+            actor_pts = [f for f in run.files() if f.name.startswith("actor")]
+            actor_versions = sorted(
+                {int(f.name.split("_")[-1][: -len(".pt")]) for f in actor_pts}
+            )
+            files_dir = None
+            if not actor_versions:
+                # env_name/algorithm_name as the run itself recorded them: the
+                # results tree is keyed on those, and __main__ passes a
+                # lowercased env that only works as a W&B project name.
+                files_dir = local_run_files(
+                    layout,
+                    exp,
+                    run_id,
+                    env=run.config.get("env_name", "Overcooked"),
+                    algorithm=run.config.get("algorithm_name", "mappo"),
+                )
+                if files_dir is not None:
+                    actor_versions = local_actor_versions(files_dir)
+                if actor_versions:
+                    logger.info(
+                        f"hsp{i}: W&B holds no checkpoints, reading {len(actor_versions)} from disk"
+                    )
+            if not actor_versions:
+                logger.error(
+                    f"hsp{i} (run {run_id}, seed {i}): no actor checkpoints on W&B and "
+                    f"none on disk for this host; skipping"
+                )
+                missing.append(i)
+                continue
             max_actor_versions = max(actor_versions) + 1
             max_steps = max(steps)
 
@@ -97,28 +154,34 @@ def extract_sp_S1_models(layout, exp, env="Overcooked"):
                 logger.info(
                     f"hsp{i}: {tag} Expected: {exp_version} {sparse_r_dict[tag]} Found: {version}"
                 )
-                actor_pts = []
-                for a_i in range(run.config["num_agents"]):
-                    actor_pts.append(
-                        run.file(f"actor_agent{a_i}_periodic_{version}.pt")
-                    )
-
-                tmp_dir = f"tmp/{layout}/{exp}"
-                for pt in actor_pts:
-                    pt.download(tmp_dir, replace=True)
+                if files_dir is None:
+                    src_dir = f"tmp/{layout}/{exp}"
+                    for a_i in range(run.config["num_agents"]):
+                        run.file(f"actor_agent{a_i}_periodic_{version}.pt").download(
+                            src_dir, replace=True
+                        )
+                else:
+                    src_dir = files_dir
 
                 hsp_s1_dir = (
                     f"{POLICY_POOL_PATH}/{layout}/hsp/s1/{exp.replace('-S1', '')}"
                 )
                 os.makedirs(hsp_s1_dir, exist_ok=True)
                 for a_i in range(run.config["num_agents"]):
+                    src = osp.join(src_dir, f"actor_agent{a_i}_periodic_{version}.pt")
                     pt_path = f"{hsp_s1_dir}/hsp{i}_{tag}_w{a_i}_actor.pt"
                     logger.info(f"pt {a_i} store in {pt_path}")
-                    os.system(
-                        f"mv {tmp_dir}/actor_agent{a_i}_periodic_{version}.pt {pt_path}"
-                    )
+                    # copy, never move: src may be the run's own wandb directory,
+                    # which has to stay intact for the other tag and for reruns.
+                    shutil.copyfile(src, pt_path)
 
-    logger.success(f"Extracted {len(seeds)} models for {layout}")
+    extracted = sorted(seeds - set(missing))
+    if missing:
+        logger.warning(
+            f"{layout}: no checkpoints found for seeds {sorted(missing)} -- they are "
+            "absent from W&B and from this host's results tree"
+        )
+    logger.success(f"Extracted {len(extracted)} models for {layout}: seeds {extracted}")
 
 
 if __name__ == "__main__":
