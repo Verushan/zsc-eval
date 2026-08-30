@@ -536,6 +536,17 @@ class Overcooked(gym.Env):
         self.step_count = 0
         self.run_dir = run_dir
         self.use_morl = getattr(all_args, "use_morl", False)
+        # Set before the observation spaces are built further down, since it
+        # changes their width.
+        self.use_morl_obs_weights = bool(
+            getattr(all_args, "use_morl_obs_weights", False)
+        )
+        if self.use_morl_obs_weights and not self.use_morl:
+            raise ValueError(
+                "--use_morl_obs_weights needs a preference vector to put in the "
+                "observation, which only exists under --use_morl"
+            )
+        self.morl_num_objectives = 0
         # `--morl_objectives` alone only tracks the objective vector for logging;
         # `--use_morl` additionally makes it the reward, and needs one.
         morl_objectives = getattr(all_args, "morl_objectives", None)
@@ -663,6 +674,7 @@ class Overcooked(gym.Env):
 
         self.morl_objective_names = objectives.names
         num_objectives = len(objectives)
+        self.morl_num_objectives = num_objectives
         self.morl_reward_scale = float(getattr(all_args, "morl_reward_scale", 1.0))
 
         weights = getattr(all_args, "morl_weights", "") or ""
@@ -750,6 +762,12 @@ class Overcooked(gym.Env):
         # featurize_fn_ppo = lambda state: self.base_mdp.lossless_state_encoding(state)
         featurize_fn_ppo = self.featurize_fn_ppo
         obs_shape = featurize_fn_ppo(dummy_state)[0].shape
+        if self.use_morl_obs_weights:
+            obs_shape = (
+                obs_shape[0],
+                obs_shape[1],
+                obs_shape[2] + self.morl_num_objectives,
+            )
         high = np.ones(obs_shape) * float("inf")
         low = np.ones(obs_shape) * 0
         self.ppo_observation_space = gym.spaces.Box(
@@ -774,6 +792,12 @@ class Overcooked(gym.Env):
                 share_obs_shape[1],
                 share_obs_shape[2] + 1,
             ]
+        if self.use_morl_obs_weights:
+            share_obs_shape = [
+                share_obs_shape[0],
+                share_obs_shape[1],
+                share_obs_shape[2] + self.morl_num_objectives,
+            ]
         share_obs_shape = [
             share_obs_shape[0],
             share_obs_shape[1],
@@ -786,6 +810,38 @@ class Overcooked(gym.Env):
 
     def _set_agent_policy_id(self, agent_policy_id):
         self.agent_policy_id = agent_policy_id
+
+    def _weight_planes(self, ob, scale):
+        """`w` broadcast over the grid as K constant channels.
+
+        `scale` matches whatever the surrounding observation is on: the ppo
+        featurisation is multiplied by 255, so raw weights of order 1/K would be
+        two orders of magnitude below every other feature and effectively
+        invisible to the network.
+        """
+        w = np.asarray(self.morl_weights, dtype=np.float32).reshape(1, 1, -1)
+        return np.ones((*ob.shape[:2], self.morl_num_objectives), dtype=np.float32) * w * scale
+
+    def _append_morl_weights(self, obs, scale=255.0):
+        """Append the current `w` to each agent's observation.
+
+        Applied at the point of return rather than where the observation is
+        featurised, because `reset()` re-initialises `w` *after* building the
+        observation tuple -- appending any earlier would carry the previous
+        episode's weights into the first step of the next one.
+        """
+        out = []
+        for ob in obs:
+            if ob.ndim != 3:
+                raise ValueError(
+                    "--use_morl_obs_weights expects the grid ('ppo') featurisation, "
+                    f"got a {ob.ndim}-D observation; 'bc' features are a flat vector "
+                    "and have no channel axis to append to"
+                )
+            out.append(
+                np.concatenate([ob, self._weight_planes(ob, scale)], axis=-1)
+            )
+        return tuple(out)
 
     def _gen_share_observation(self, state):
         share_obs = list(self.featurize_fn_ppo(state))
@@ -801,6 +857,10 @@ class Overcooked(gym.Env):
                     ],
                     axis=-1,
                 )
+        if self.use_morl_obs_weights:
+            # scale 1.0: the concatenated result is multiplied by 255 below, so
+            # the weights end up on the same footing as every other channel.
+            share_obs = list(self._append_morl_weights(share_obs, scale=1.0))
         share_obs0 = np.concatenate([share_obs[0], share_obs[1]], axis=-1) * 255
         share_obs1 = np.concatenate([share_obs[1], share_obs[0]], axis=-1) * 255
         return np.stack([share_obs0, share_obs1], axis=0)  # shape (2, *obs_shape)
@@ -1071,6 +1131,11 @@ class Overcooked(gym.Env):
         if self.agent_idx == 1:
             available_actions = np.stack([available_actions[1], available_actions[0]])
 
+        if self.use_morl_obs_weights:
+            # _update_morl_weights() has already run for this transition, so the
+            # agent observes the w that will scalarize its *next* reward.
+            both_agents_ob = self._append_morl_weights(both_agents_ob)
+
         return both_agents_ob, share_obs, reward, done, info, available_actions
 
     def anneal_reward_shaping_factor(self, timesteps):
@@ -1140,6 +1205,9 @@ class Overcooked(gym.Env):
         available_actions = self._get_available_actions()
         if self.agent_idx == 1:
             available_actions = np.stack([available_actions[1], available_actions[0]])
+
+        if self.use_morl_obs_weights:
+            both_agents_ob = self._append_morl_weights(both_agents_ob)
 
         return both_agents_ob, share_obs, available_actions
 

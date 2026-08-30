@@ -27,6 +27,10 @@ Checks
 6. ``mirror_descent``  the adaptive preference update keeps w on the simplex,
                      keeps eta in range, moves weight away from over-represented
                      objectives, and resets to the target.
+7. ``obs_weights``   ``--use_morl_obs_weights`` appends the live ``w`` to the
+                     observation and the share observation, tracks it every step
+                     under adaptive weights, and does not widen the observation
+                     when the flag is off.
 
 Usage:
     python zsceval/scripts/overcooked/morl/check_morl_reward.py
@@ -449,6 +453,138 @@ def check_mirror_descent(
     return failures
 
 
+def check_obs_weights(
+    layout: str, horizon: int, scripts: Sequence[str]
+) -> List[str]:
+    """`--use_morl_obs_weights` puts the live `w` in the observation, and only then.
+
+    Adaptive weights make the reward non-stationary: `w` moves mid-episode while
+    the agent cannot see that it moved, so two identical observations carry
+    different returns. This flag restores the Markov property. It also widens the
+    observation space, so the off-by-default path is checked for regression --
+    every agent already in the policy pool was trained without it.
+    """
+    failures = []
+
+    base = build_env(layout, horizon)
+    ob, share_ob, _ = base.reset()
+    base_c = ob[0].shape[-1]
+
+    tracking = build_env(layout, horizon, ["--use_morl", "--morl_objectives", "default"])
+    ob_t, _, _ = tracking.reset()
+    if ob_t[0].shape[-1] != base_c:
+        failures.append(
+            f"--use_morl alone widened the observation from {base_c} to "
+            f"{ob_t[0].shape[-1]}; it must not touch the observation space"
+        )
+
+    env = build_env(
+        layout,
+        horizon,
+        [
+            "--use_morl", "--morl_objectives", "default", "--use_morl_obs_weights",
+            "--morl_adaptive_weights", "--morl_eta_max", "0.02",
+        ],
+    )  # fmt: skip
+    k = env.morl_num_objectives
+    env.agent_idx = 0
+    ob, share_ob, _ = env.reset()
+
+    if ob[0].shape[-1] != base_c + k:
+        failures.append(
+            f"observation has {ob[0].shape[-1]} channels, expected {base_c} + {k}"
+        )
+    if share_ob[0].shape[-1] != (base_c + k) * env.num_agents:
+        failures.append(
+            f"share observation has {share_ob[0].shape[-1]} channels, "
+            f"expected ({base_c} + {k}) * {env.num_agents}"
+        )
+    if tuple(env.observation_space[0].shape) != tuple(ob[0].shape):
+        failures.append(
+            f"observation_space {tuple(env.observation_space[0].shape)} does not "
+            f"match the observation it returns {tuple(ob[0].shape)}"
+        )
+    if tuple(env.share_observation_space[0].shape) != tuple(share_ob[0].shape):
+        failures.append(
+            f"share_observation_space {tuple(env.share_observation_space[0].shape)} "
+            f"does not match {tuple(share_ob[0].shape)}"
+        )
+    if not np.allclose(ob[0][..., :base_c], ob_t[0]):
+        failures.append("appending w perturbed the original observation channels")
+
+    # The planes are w broadcast over the grid, on the same 255 scale as the
+    # rest of the ppo featurisation.
+    def obs_w(o):
+        return o[0][0, 0, base_c:] / 255.0
+
+    def share_w(so):
+        return so[0][0, 0, base_c : base_c + k] / 255.0
+
+    planes = ob[0][..., base_c:]
+    if not np.allclose(planes, planes[0, 0]):
+        failures.append("the weight planes are not constant over the grid")
+
+    start = obs_w(ob).copy()
+    if not np.allclose(start, env.morl_weights, atol=ATOL):
+        failures.append(
+            f"reset() observation carries {start.tolist()}, env has "
+            f"{env.morl_weights.tolist()}"
+        )
+
+    # Drive a real episode: random actions score nothing, so g stays all-zero,
+    # the update falls back to the target and w never moves -- which would make
+    # the tracking assertion below vacuous.
+    agents = [SCRIPT_AGENTS[name]() for name in scripts]
+    for player_idx, agent in enumerate(agents):
+        agent.reset(env.base_env.mdp, env.base_env.state, player_idx)
+
+    mismatches = 0
+    seen = [start.copy()]
+    for _ in range(horizon):
+        by_player = [
+            Action.ACTION_TO_INDEX[
+                agents[p].step(env.base_env.mdp, env.base_env.state, p)
+            ]
+            for p in range(env.num_agents)
+        ]
+        ob, share_ob, _, done, _, _ = env.step([[by_player[0]], [by_player[1]]])
+        if not np.allclose(obs_w(ob), env.morl_weights, atol=1e-6):
+            mismatches += 1
+        if not np.allclose(share_w(share_ob), env.morl_weights, atol=1e-6):
+            mismatches += 1
+        seen.append(obs_w(ob).copy())
+        if done[0]:
+            break
+
+    if mismatches:
+        failures.append(
+            f"the observed w disagreed with env.morl_weights on {mismatches} of "
+            f"{2 * (len(seen) - 1)} reads"
+        )
+
+    seen = np.array(seen)
+    moved = float(np.abs(seen[-1] - seen[0]).max())
+    if moved <= 1e-3:
+        failures.append(
+            f"w moved by only {moved} over the episode, so tracking was never "
+            "exercised -- pick a layout/script pair that actually scores"
+        )
+    if not np.allclose(seen.sum(axis=1), 1.0, atol=1e-6):
+        failures.append("observed weights left the simplex")
+
+    # reset() re-initialises w *after* building the observation tuple, so an
+    # append done any earlier carries the last episode's weights into the next.
+    ob, _, _ = env.reset()
+    after = obs_w(ob)
+    if not np.allclose(after, start, atol=ATOL):
+        failures.append(
+            f"reset() leaked the previous episode's weights: {after.tolist()} "
+            f"instead of {start.tolist()}"
+        )
+
+    return failures
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -460,6 +596,7 @@ CHECKS = {
     "no_morl_regression": check_no_morl_regression,
     "env_consistency": check_env_consistency,
     "mirror_descent": check_mirror_descent,
+    "obs_weights": check_obs_weights,
 }
 
 

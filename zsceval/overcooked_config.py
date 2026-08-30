@@ -110,6 +110,19 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         default="",
         help="Comma-separated preference weights over --morl_objectives. Empty means uniform 1/K.",
     )
+    # Adaptive weights make the reward non-stationary: w moves during an episode
+    # while the agent has no way to see that it moved, so identical observations
+    # carry different returns. Putting w in the observation restores the Markov
+    # property. Opt-in because it widens the observation space, and a policy
+    # trained at one width cannot load a checkpoint saved at another -- every
+    # existing agent in the pool was trained without it.
+    parser.add_argument(
+        "--use_morl_obs_weights",
+        default=False,
+        action="store_true",
+        help="Append the current preference vector w to the observation as K extra "
+        "channels. Requires --use_morl.",
+    )
     parser.add_argument(
         "--morl_reward_scale",
         type=float,
