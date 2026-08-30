@@ -94,10 +94,29 @@ num_agents=2
 algo="adaptive"
 exp="fcp-S2-${arm}${exp_suffix}"
 
+# Partner-conditioning ablation. PID_OBS=1 shows the ego agent which partner it
+# is paired with, on top of the critic-side --use_agent_policy_id every stage-2
+# run already gets. This is an ORACLE UPPER BOUND, not a zero-shot method: a
+# held-out partner has no id the agent was ever trained on. See CLAUDE.md.
+#
+# The width must equal the number of entries in the population yml, because
+# policy_pool.load_population assigns id = (i + 1) / len(population_config) --
+# counting the trainable agent, not just the partners. Defaulting to that count
+# removes the one real footgun; a wrong width raises rather than aliasing two
+# partners onto one index.
+pid_flags=""
+if [[ -n "${PID_OBS}" ]]; then
+    pid_dim=${PID_OBS_DIM:-$(grep -c "^[a-zA-Z_][a-zA-Z_0-9]*:" "${yml}")}
+    pid_flags="--use_agent_policy_id_obs --agent_policy_id_obs_dim ${pid_dim}"
+fi
+
 ulimit -n 65536 || ulimit -n 4096
 
 echo "env ${env}, layout ${layout}, arm ${arm}, population ${population_size}, seeds ${seed_begin}..${seed_max}, steps ${num_env_steps}"
 echo "${episodes} updates at ${ROLLOUT_THREADS} rollout threads: log every ${log_interval}, eval every ${eval_interval}"
+if [[ -n "${pid_flags}" ]]; then
+    echo "partner-id observation: ${pid_flags}"
+fi
 echo "population yml: ${yml}"
 for seed in $(seq ${seed_begin} ${seed_max}); do
     echo "=== ${exp} seed ${seed} ==="
@@ -113,6 +132,7 @@ for seed in $(seq ${seed_begin} ${seed_max}); do
         --use_eval --eval_interval ${eval_interval} --n_eval_rollout_threads ${n_eval_rollout_threads} --eval_episodes ${eval_episodes} \
         --population_yaml_path "${yml}" \
         --population_size ${population_size} --adaptive_agent_name fcp_adaptive --use_agent_policy_id \
+        ${pid_flags} \
         --use_proper_time_limits \
         --wandb_tags morl-s2 ${arm} \
         --wandb_name $WANDB_ENTITY || exit 1
