@@ -70,6 +70,10 @@ if __package__ in (None, ""):
         ),
     )
 
+from types import SimpleNamespace  # noqa: E402
+
+from zsceval.algorithms.population.trainer_pool import TrainerPool  # noqa: E402
+from zsceval.algorithms.population.utils import EvalPolicy  # noqa: E402
 from zsceval.config import get_config  # noqa: E402
 from zsceval.envs.morl.preferences import MirrorDescentPreferences  # noqa: E402
 from zsceval.envs.overcooked.Overcooked_Env import Overcooked  # noqa: E402
@@ -698,6 +702,43 @@ def check_policy_id_obs(
         )
     elif not np.allclose(ob[0][0, 0, base_c : base_c + k] / 255.0, env.morl_weights):
         failures.append("the weight block moved when the id block was added")
+
+    # -- frozen partners must survive the widened observation ----------------
+    # A widening flag changes what the *environment* emits, but every policy
+    # already in the pool was built at the original width. Both paths a frozen
+    # policy travels have to trim: EvalPolicy (population evaluation, and
+    # PartialPolicyEnv, which wraps it) and the per-trainer replay buffers.
+    narrow, wide = base_c, base_c + n
+    ev = EvalPolicy.__new__(EvalPolicy)
+    ev.policy = SimpleNamespace(obs_space=SimpleNamespace(shape=(5, 5, narrow)))
+    trimmed = ev.fit_obs(np.zeros((1, 5, 5, wide), dtype=np.float32))
+    if trimmed.shape[-1] != narrow:
+        failures.append(
+            f"EvalPolicy.fit_obs left {trimmed.shape[-1]} features, expected {narrow}"
+        )
+    marker = np.zeros((1, 5, 5, wide), dtype=np.float32)
+    marker[..., :narrow] = 7.0
+    if not np.allclose(ev.fit_obs(marker), 7.0):
+        failures.append("EvalPolicy.fit_obs dropped the wrong end of the feature axis")
+    if ev.fit_obs(np.zeros((1, 5, 5, narrow), dtype=np.float32)).shape[-1] != narrow:
+        failures.append("EvalPolicy.fit_obs altered an already-matching observation")
+    try:
+        ev.fit_obs(np.zeros((1, 5, 5, narrow - 1), dtype=np.float32))
+        failures.append(
+            "EvalPolicy.fit_obs accepted an observation narrower than the policy; "
+            "widening only ever adds features, so that is a real mismatch"
+        )
+    except ValueError:
+        pass
+
+    buf = np.zeros((2, 1, 5, 5, narrow), dtype=np.float32)
+    got = TrainerPool.fit_features(
+        buf, np.zeros((2, 1, 5, 5, wide), dtype=np.float32), "observation", "partner"
+    )
+    if got.shape[-1] != narrow:
+        failures.append(
+            f"TrainerPool.fit_features left {got.shape[-1]} features, expected {narrow}"
+        )
 
     return failures
 

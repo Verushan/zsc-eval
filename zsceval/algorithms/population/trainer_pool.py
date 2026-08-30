@@ -138,6 +138,28 @@ class TrainerPool:
     def extract_elements(self, trainer_name, x):
         return np.stack([x[e][a] for e, a in self.control_agents[trainer_name]])
 
+    @staticmethod
+    def fit_features(target, x, what, trainer_name):
+        """Trim trailing feature channels a trainer's network was not built for.
+
+        Observation-widening flags (`--use_agent_policy_id_obs`,
+        `--use_morl_obs_weights`) change the width the *environment* emits, but a
+        frozen population member's network was built from a pickled policy config
+        at the original width. The appended channels are always last, so a slice
+        recovers exactly the observation that policy was trained on -- and a
+        frozen policy could not use the extra features anyway.
+        """
+        want, have = target.shape[-1], x.shape[-1]
+        if have == want:
+            return x
+        if have < want:
+            raise ValueError(
+                f"{trainer_name}: the environment supplies {have} {what} features "
+                f"but this policy expects {want}. Widening flags can only add "
+                "features, so this is a genuine configuration mismatch"
+            )
+        return x[..., :want]
+
     def skip(self, trainer_name):
         # produce actions in parallel envs, skip this trainer
         return (self.use_policy_in_env and trainer_name not in self.on_training) or (
@@ -157,8 +179,13 @@ class TrainerPool:
             share_obs_lst = np.expand_dims(
                 self.extract_elements(trainer_name, share_obs), axis=1
             )
-            self.buffer_pool[trainer_name].share_obs[0] = share_obs_lst.copy()
-            self.buffer_pool[trainer_name].obs[0] = obs_lst.copy()
+            buffer = self.buffer_pool[trainer_name]
+            share_obs_lst = self.fit_features(
+                buffer.share_obs, share_obs_lst, "share observation", trainer_name
+            )
+            obs_lst = self.fit_features(buffer.obs, obs_lst, "observation", trainer_name)
+            buffer.share_obs[0] = share_obs_lst.copy()
+            buffer.obs[0] = obs_lst.copy()
 
             if available_actions is not None:
                 available_actions_lst = np.expand_dims(
@@ -279,9 +306,17 @@ class TrainerPool:
             ) = self.step_data[trainer_name]
 
             # (control_agent_count[trainer_name], 1, *)
-            obs_lst = np.expand_dims(self.extract_elements(trainer_name, obs), axis=1)
-            share_obs_lst = np.expand_dims(
-                self.extract_elements(trainer_name, share_obs), axis=1
+            obs_lst = self.fit_features(
+                buffer.obs,
+                np.expand_dims(self.extract_elements(trainer_name, obs), axis=1),
+                "observation",
+                trainer_name,
+            )
+            share_obs_lst = self.fit_features(
+                buffer.share_obs,
+                np.expand_dims(self.extract_elements(trainer_name, share_obs), axis=1),
+                "share observation",
+                trainer_name,
             )
             rewards_lst = np.expand_dims(
                 self.extract_elements(trainer_name, rewards), axis=1

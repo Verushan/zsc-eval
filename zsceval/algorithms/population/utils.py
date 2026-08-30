@@ -50,9 +50,39 @@ class EvalPolicy:
             self._map_a2id[(e, a)] = len(self._control_agents)
             self._rnn_states[(e, a)] = self.default_hidden_state
 
+    def fit_obs(self, obs):
+        """Trim trailing features this policy's network was not built for.
+
+        Observation-widening flags (`--use_agent_policy_id_obs`,
+        `--use_morl_obs_weights`) change the width the environment emits, but a
+        frozen population member was built from a pickled policy config at the
+        original width. The extra features are always appended last, so a slice
+        is exactly the observation this policy was trained on -- and it has no
+        use for the extras, since it is not learning.
+
+        Every frozen policy acts through EvalPolicy -- the population evaluation
+        path and PartialPolicyEnv both wrap here -- so this is the one place the
+        trim is needed outside the training buffers.
+        """
+        space = getattr(self.policy, "obs_space", None)
+        shape = getattr(space, "shape", None)
+        if not shape:
+            return obs
+        want, have = shape[-1], obs.shape[-1]
+        if have == want:
+            return obs
+        if have < want:
+            raise ValueError(
+                f"environment supplies {have} observation features but this policy "
+                f"expects {want}; widening flags only ever add features, so this is "
+                "a genuine configuration mismatch"
+            )
+        return obs[..., :want]
+
     def step(self, obs, agents, deterministic=False, masks=None, **kwargs):
         num = len(agents)
         assert obs.shape[0] == num
+        obs = self.fit_obs(obs)
         rnn_states = [self._rnn_states[ea] for ea in agents]
         if masks is None:
             masks = np.ones((num, 1), dtype=np.float32)
