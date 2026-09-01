@@ -1,6 +1,7 @@
 import os
 import socket
 import sys
+import time
 
 import numpy as np
 import wandb
@@ -78,9 +79,28 @@ def extract_sp_S1_models(layout, exp, env, metric: str = "ep_sparse_r"):
         )
 
         seeds.add(run.config["seed"])
-        files = run.files()
 
-        actor_pts = [f for f in files if f.name.startswith("actor_periodic")]
+        # The W&B file paginator occasionally returns a null page under load --
+        # four of these jobs finishing at once was enough -- and the list
+        # comprehension then dies on `last_response["project"]` being None,
+        # after the whole training run has already been paid for. Bounded
+        # retry, because a permanent error should still surface.
+        actor_pts = None
+        for attempt in range(5):
+            try:
+                actor_pts = [
+                    f for f in run.files() if f.name.startswith("actor_periodic")
+                ]
+                break
+            except TypeError as err:
+                logger.warning(
+                    f"W&B file listing for {run_id} failed "
+                    f"(attempt {attempt + 1}/5): {err}"
+                )
+                time.sleep(5 * (attempt + 1))
+        if actor_pts is None:
+            logger.error(f"Could not list files for {run_id}; skipping")
+            continue
 
         if not actor_pts:
             continue
