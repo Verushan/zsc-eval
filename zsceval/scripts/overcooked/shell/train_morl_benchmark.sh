@@ -60,10 +60,15 @@ esac
 # are scaled to num_env_steps rather than left at the paper's 1e7: on a 2e6-step
 # run the upstream "0 5e6 1e7" schedule never leaves the 0.2 entropy phase, so
 # every arm would be measured mid-exploration.
-num_env_steps="2e6"
-reward_shaping_horizon="2e6"
+#
+# MORL_BENCH_STEPS overrides the budget and rescales both schedules with it, so a
+# longer run still leaves the 0.2 entropy phase at the same fraction of training.
+# It carries its own name for the reason every other override in this repo does:
+# .env is sourced first, so a generic name there would silently win.
+num_env_steps=${MORL_BENCH_STEPS:-2e6}
+reward_shaping_horizon=${num_env_steps}
 entropy_coefs="0.2 0.05 0.01"
-entropy_coef_horizons="0 1e6 2e6"
+entropy_coef_horizons="0 $(awk -v n="${num_env_steps}" 'BEGIN{printf "%d", n / 2}') ${num_env_steps}"
 
 episode_length=400
 ppo_epoch=15
