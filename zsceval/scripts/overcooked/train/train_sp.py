@@ -86,11 +86,13 @@ def parse_args(args, parser: argparse.ArgumentParser):
 
     all_args = parser.parse_args(args)
 
-    # Only zsceval/envs/overcooked/ carries the MORL objective layer; the "new"
-    # multi-recipe env would silently ignore --use_morl and train on sparse reward.
+    # Both env versions now carry the MORL objective layer. The preference
+    # vector in the observation is still old-env only: it widens the observation
+    # space, which the multi-recipe env builds in reset_featurize_type() rather
+    # than in __init__, so the two are not the same change.
     assert not (
-        all_args.use_morl and all_args.overcooked_version == "new"
-    ), "--use_morl is only supported by --overcooked_version old"
+        all_args.use_morl_obs_weights and all_args.overcooked_version == "new"
+    ), "--use_morl_obs_weights is only supported by --overcooked_version old"
 
     from zsceval.overcooked_config import OLD_LAYOUTS
 

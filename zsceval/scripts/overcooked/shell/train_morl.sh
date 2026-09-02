@@ -12,8 +12,9 @@ layout=$1
 if [[ "${layout}" == "random0" || "${layout}" == "random0_medium" || "${layout}" == "random1" || "${layout}" == "random3" || "${layout}" == "small_corridor" || "${layout}" == "unident_s" ]]; then
     version="old"
 else
-    echo "MORL is only supported on the old-env layouts, got '${layout}'"
-    exit 1
+    # The multi-recipe env carries the objective layer too. Only
+    # --use_morl_obs_weights is still old-env only; train_sp.py asserts on it.
+    version="new"
 fi
 
 entropy_coefs="0.2 0.05 0.01"

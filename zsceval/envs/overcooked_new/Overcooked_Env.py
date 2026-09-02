@@ -10,6 +10,8 @@ import numpy as np
 import tqdm
 from loguru import logger
 
+from zsceval.envs.morl.objectives import ObjectiveContext, make_objective_vector
+from zsceval.envs.morl.preferences import MirrorDescentPreferences
 from zsceval.envs.overcooked_new.script_agent.script_agent import SCRIPT_AGENTS
 from zsceval.utils.train_util import setup_seed
 
@@ -62,6 +64,7 @@ class OvercookedEnv:
         info_level=0,
         num_mdp=1,
         initial_info={},
+        objectives=None,
     ):
         """
         mdp_generator_fn (callable):    A no-argument function that returns a OvercookedGridworld instance
@@ -71,6 +74,9 @@ class OvercookedEnv:
         info_level (int):               Change amount of logging
         num_mdp (int):                  the number of mdp if we are using a list of mdps
         initial_info (dict):            the initial outside information feed into the generator function
+        objectives:                     multi-objective (MORL) reward specification, passed to
+                                        `zsceval.envs.morl.make_objective_vector`. None (the default)
+                                        disables the objective vector and leaves the env unchanged.
 
         TODO: Potentially make changes based on this discussion
         https://github.com/HumanCompatibleAI/overcooked_ai/pull/22#discussion_r416786847
@@ -89,6 +95,8 @@ class OvercookedEnv:
         self.start_state_fn = start_state_fn
         self.evaluation = evaluation
         self.info_level = info_level
+        # NOTE: must be set before reset(), which resets the objective vector.
+        self.objectives = make_objective_vector(objectives)
         self.reset(outside_info=initial_info)
         if self.horizon >= MAX_HORIZON and self.info_level > 0:
             print(
@@ -129,6 +137,7 @@ class OvercookedEnv:
         mlam_params=NO_COUNTERS_PARAMS,
         info_level=0,
         evaluation: bool = False,
+        objectives=None,
     ):
         """
         Create an OvercookedEnv directly from a OvercookedGridworld mdp
@@ -144,6 +153,7 @@ class OvercookedEnv:
             info_level=info_level,
             num_mdp=1,
             evaluation=evaluation,
+            objectives=objectives,
         )
 
     #####################
@@ -254,10 +264,19 @@ class OvercookedEnv:
         # Update game_stats
         self._update_game_stats(mdp_infos)
 
+        # MORL: score this step against each objective. Computed while self.state
+        # is still the pre-transition state, which is what objectives need to
+        # recover interact positions.
+        vec_r_by_agent = self._update_objectives(next_state, joint_action, mdp_infos)
+
         # Update state and done
         self.state = next_state
         done = self.is_done()
         env_info = self._prepare_info_dict(joint_agent_action_info, mdp_infos)
+
+        if vec_r_by_agent is not None:
+            env_info["vec_r_by_agent"] = vec_r_by_agent
+            env_info["objective_names"] = self.objectives.names
 
         if done:
             self._add_episode_info(env_info)
@@ -311,6 +330,12 @@ class OvercookedEnv:
             "cumulative_shaped_rewards_by_agent": np.array([0] * self.mdp.num_players),
             "cumulative_category_rewards_by_agent": np.zeros((self.mdp.num_players, len(SHAPED_INFOS))),
         }
+        if self.objectives is not None:
+            self.objectives.reset(self.mdp.num_players)
+            rewards_dict["cumulative_objective_rewards_by_agent"] = np.zeros(
+                (self.mdp.num_players, len(self.objectives))
+            )
+
         self.game_stats = {**events_dict, **rewards_dict}
         return self.state
 
@@ -356,7 +381,39 @@ class OvercookedEnv:
             "ep_category_r_by_agent": self.game_stats["cumulative_category_rewards_by_agent"],
             "ep_length": self.state.timestep,
         }
+        if self.objectives is not None:
+            env_info["episode"]["ep_vec_r_by_agent"] = self.game_stats["cumulative_objective_rewards_by_agent"]
+            env_info["episode"]["ep_objective_names"] = self.objectives.names
         return env_info
+
+    def _update_objectives(self, next_state, joint_action, mdp_infos):
+        """Score one step against the MORL objective vector.
+
+        Must be called while `self.state` is still the pre-transition state:
+        objectives recover the tile an agent interacted with from its pose, and
+        INTERACT leaves position and orientation unchanged, so the pre-transition
+        pose is the pose at interact-resolution time.
+
+        Returns:
+            A (num_players, K) float array, or None when objectives are disabled.
+        """
+        if self.objectives is None:
+            return None
+
+        context = ObjectiveContext(
+            mdp=self.mdp,
+            prev_state=self.state,
+            next_state=next_state,
+            joint_action=joint_action,
+            shaped_info_by_agent=mdp_infos["shaped_info_by_agent"],
+            sparse_r_by_agent=mdp_infos["sparse_reward_by_agent"],
+            shaped_r_by_agent=mdp_infos["shaped_reward_by_agent"],
+            num_players=self.mdp.num_players,
+            t=self.state.timestep,
+        )
+        vec_r_by_agent = self.objectives.step(context)
+        self.game_stats["cumulative_objective_rewards_by_agent"] += vec_r_by_agent
+        return vec_r_by_agent
 
     def vectorize_shaped_info(self, shaped_info_by_agent):
         def vectorize(d: dict):
@@ -699,6 +756,21 @@ class Overcooked(gym.Env):
         self.traj_num = 0
         self.step_count = 0
         self.run_dir = run_dir
+        self.use_morl = getattr(all_args, "use_morl", False)
+        # The observation-appended preference vector is not ported to the
+        # multi-recipe env yet: it widens the observation space, which is built
+        # in reset_featurize_type() here rather than in __init__ as it is in the
+        # old env. Fail loudly rather than silently training on the wrong width.
+        if getattr(all_args, "use_morl_obs_weights", False):
+            raise NotImplementedError(
+                "--use_morl_obs_weights is only implemented for --overcooked_version old"
+            )
+        self.morl_num_objectives = 0
+        # `--morl_objectives` alone only tracks the objective vector for logging;
+        # `--use_morl` additionally makes it the reward, and needs one.
+        morl_objectives = getattr(all_args, "morl_objectives", None)
+        if self.use_morl and morl_objectives is None:
+            morl_objectives = "default"
         if not old_dynamics:
             self.old_dynamics = all_args.old_dynamics
         else:
@@ -722,6 +794,8 @@ class Overcooked(gym.Env):
         env_params = {
             "horizon": all_args.episode_length,
             "evaluation": evaluation,
+            # MORL: opt-in via --morl_objectives. Absent/None => scalar-reward
+            "objectives": morl_objectives,
         }
 
         # if getattr(all_args, "stage", 1) == 1:
@@ -774,6 +848,8 @@ class Overcooked(gym.Env):
             start_state_fn=self.random_start_prob if self.random_start_prob > 0 else None,
             **env_params,
         )
+        if self.use_morl:
+            self._setup_morl(all_args)
         self.use_agent_policy_id = dict(all_args._get_kwargs()).get(
             "use_agent_policy_id", False
         )  # Add policy id for loaded policy
@@ -837,6 +913,85 @@ class Overcooked(gym.Env):
         for s in weight.split(","):
             w.append(float(s))
         return np.array(w).astype(np.float32)
+
+    def _setup_morl(self, all_args):
+        """Resolve the preference vector and per-episode MORL bookkeeping.
+
+        Called from `__init__` only when `--use_morl` is set, and only after
+        `self.base_env` exists, since the objective vector it built determines
+        the expected weight length.
+        """
+        objectives = self.base_env.objectives
+        assert objectives is not None, "--use_morl requires an objective vector; --morl_objectives resolved to None"
+
+        self.morl_objective_names = objectives.names
+        num_objectives = len(objectives)
+        self.morl_num_objectives = num_objectives
+        self.morl_reward_scale = float(getattr(all_args, "morl_reward_scale", 1.0))
+
+        weights = getattr(all_args, "morl_weights", "") or ""
+        if weights.strip():
+            self.morl_weights = self.string2array(weights)
+        else:
+            self.morl_weights = np.full(num_objectives, 1.0 / num_objectives)
+        assert len(self.morl_weights) == num_objectives, (
+            f"--morl_weights has {len(self.morl_weights)} entries but "
+            f"--morl_objectives resolved to {num_objectives}: {self.morl_objective_names}"
+        )
+
+        self.morl_adaptive_weights = getattr(all_args, "morl_adaptive_weights", False)
+        self.morl_weight_update_interval = max(1, int(getattr(all_args, "morl_weight_update_interval", 1)))
+        if self.morl_adaptive_weights:
+            # The initial weights double as the mirror descent target t, so
+            # --morl_weights sets the objective mix the update steers towards.
+            self.morl_preferences = MirrorDescentPreferences(
+                num_objectives=num_objectives,
+                eta_min=getattr(all_args, "morl_eta_min", 1e-4),
+                eta_max=getattr(all_args, "morl_eta_max", 5e-3),
+                target=self.morl_weights,
+                floor=getattr(all_args, "morl_weight_floor", 0.01),
+            )
+            self.morl_weights = self.morl_preferences.weights
+        else:
+            self.morl_preferences = None
+
+        self.cumulative_morl_reward = np.zeros(self.num_agents)
+        morl_dict = {
+            "objectives": self.morl_objective_names,
+            "weights": self.morl_weights.tolist(),
+            "scale": self.morl_reward_scale,
+            "adaptive": self.morl_adaptive_weights,
+        }
+        logger.debug("morl reward:\n" + pprint.pformat(morl_dict, compact=True, width=120))
+
+    def _morl_reward(self, vec_r_by_agent):
+        """Scalarize this step's reward vector into one reward per player.
+
+        Args:
+            vec_r_by_agent: `(num_players, K)` from `info["vec_r_by_agent"]`,
+                indexed by *base env player slot*, not by ego index.
+
+        Returns:
+            A `(num_players,)` float array in base env player order. The
+            `agent_idx == 1` swap at the end of `step()` handles ego ordering,
+            so no swap is needed here -- unlike HSP, whose w0/w1 belong to the
+            ego agent rather than to the player slot.
+        """
+        return self.morl_reward_scale * np.asarray(vec_r_by_agent) @ self.morl_weights
+
+    def _update_morl_weights(self):
+        """Advance the preference weights by one mirror descent step.
+
+        No-op unless `--morl_adaptive_weights`. `g` is the episode-to-date share
+        of each objective, which `ObjectiveVector.proportions` reports as uniform
+        while nothing has happened yet, making early-episode updates no-ops
+        rather than divisions by zero.
+        """
+        if self.morl_preferences is None:
+            return
+        if self.step_count % self.morl_weight_update_interval != 0:
+            return
+        self.morl_weights = self.morl_preferences.update(self.base_env.objectives.proportions())
 
     def _action_convertor(self, action):
         return [a[0] for a in list(action)]
@@ -1025,6 +1180,16 @@ class Overcooked(gym.Env):
                     )
                     shaped_reward_p0 = hidden_reward[0] + self.reward_shaping_factor * dense_reward[0]
                     shaped_reward_p1 = hidden_reward[1]
+            elif self.use_morl:
+                #! the objective vector fully replaces sparse + shaped reward.
+                # The sparse reward still reaches the agent through the
+                # `task_completion` objective; the remaining objectives are
+                # already dense, so no hand-crafted shaping is applied.
+                morl_reward = self._morl_reward(info["vec_r_by_agent"])
+                shaped_reward_p0 = morl_reward[0]
+                shaped_reward_p1 = morl_reward[1]
+                self.cumulative_morl_reward += morl_reward
+                self._update_morl_weights()
             else:
                 dense_reward = info["shaped_r_by_agent"]
                 shaped_reward_p0 = sparse_reward + self.reward_shaping_factor * dense_reward[0]
@@ -1079,6 +1244,11 @@ class Overcooked(gym.Env):
                 self._store_trajectory()
             if self.use_hsp:
                 info["episode"]["ep_hidden_r_by_agent"] = self.cumulative_hidden_reward
+            if self.use_morl:
+                cumulative_morl_reward = self.cumulative_morl_reward
+                info["episode"]["ep_morl_r_by_agent"] = cumulative_morl_reward.copy()
+                info["episode"]["ep_morl_r"] = cumulative_morl_reward.sum()
+                info["episode"]["ep_morl_weights"] = self.morl_weights.copy()
             info["bad_transition"] = True
         else:
             info["bad_transition"] = False
@@ -1149,6 +1319,9 @@ class Overcooked(gym.Env):
 
         if self.use_hsp:
             self.cumulative_hidden_reward = np.zeros(2)
+
+        if self.use_morl:
+            self.cumulative_morl_reward = np.zeros(self.num_agents)
 
         share_obs = self._gen_share_observation(self.base_env.state)
         available_actions = self._get_available_actions()

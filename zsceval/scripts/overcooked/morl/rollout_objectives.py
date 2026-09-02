@@ -57,6 +57,27 @@ from zsceval.envs.overcooked.script_agent.script_agent import (
     SCRIPT_AGENTS,
 )  # noqa: E402
 
+# The multi-recipe ("new") env is a separate package with its own MDP, action
+# enum and script agents, imported lazily so this script still runs if only one
+# of the two is importable.
+
+
+def _new_env_modules():
+    from zsceval.envs.overcooked_new.Overcooked_Env import (
+        OvercookedEnv as NewOvercookedEnv,
+    )
+    from zsceval.envs.overcooked_new.src.overcooked_ai_py.mdp.actions import (
+        Action as NewAction,
+    )
+    from zsceval.envs.overcooked_new.src.overcooked_ai_py.mdp.overcooked_mdp import (
+        SHAPED_INFOS as NEW_SHAPED_INFOS,
+    )
+    from zsceval.envs.overcooked_new.src.overcooked_ai_py.mdp.overcooked_mdp import (
+        OvercookedGridworld as NewOvercookedGridworld,
+    )
+
+    return NewOvercookedEnv, NewAction, NEW_SHAPED_INFOS, NewOvercookedGridworld
+
 # Layouts backed by `zsceval/envs/overcooked/` (the "old" env this script drives).
 #
 # Note that `random0` (the layout the pipelines train on) is fully partitioned --
@@ -73,6 +94,16 @@ OLD_LAYOUTS = [
     "small_corridor",
     "unident_s",
 ]
+
+#: The env package `build_env` last selected. The two Overcooked packages ship
+#: their own action enum and script-agent registry, so the agent factories below
+#: read them from here rather than from the module-level imports.
+ACTIVE = {
+    "version": "old",
+    "Action": Action,
+    "SCRIPT_AGENTS": SCRIPT_AGENTS,
+    "SHAPED_INFOS": SHAPED_INFOS,
+}
 
 #: Default scripted policy: picks up onions, fills pots, plates and delivers.
 DEFAULT_SCRIPT_AGENT = "place_onion_and_deliver_soup"
@@ -91,14 +122,52 @@ def build_env(
     layout: str = "random0",
     horizon: int = 400,
     objectives: str = "default",
-) -> OvercookedEnv:
+    version: str = "old",
+):
     """Construct an `OvercookedEnv` with the MORL objective vector attached.
 
     Mirrors how the `Overcooked` gym wrapper builds its base env: reward shaping
     is switched on via `BASE_REW_SHAPING_PARAMS`, and the MDP is handed over as a
     *factory* rather than an instance, because `OvercookedEnv.reset()` calls
     `self.mdp_generator_fn()` on every episode.
+
+    `version="new"` builds the multi-recipe env instead. Its generator takes an
+    `outside_info` argument and its shaping params are named differently, which
+    is why the two branches do not share a body.
     """
+    if version == "new":
+        NewOvercookedEnv, NewAction, _, NewOvercookedGridworld = _new_env_modules()
+        from zsceval.envs.overcooked_new.script_agent.script_agent import (
+            SCRIPT_AGENTS as NEW_SCRIPT_AGENTS,
+        )
+
+        _, _, NEW_SHAPED_INFOS, _ = _new_env_modules()
+        ACTIVE.update(
+            version="new",
+            Action=NewAction,
+            SCRIPT_AGENTS=NEW_SCRIPT_AGENTS,
+            SHAPED_INFOS=NEW_SHAPED_INFOS,
+        )
+        mdp = NewOvercookedGridworld.from_layout_name(
+            layout_name=layout,
+            start_order_list=None,
+            rew_shaping_params={
+                "PLACEMENT_IN_POT_REW": 3,
+                "DISH_PICKUP_REWARD": 3,
+                "SOUP_PICKUP_REWARD": 5,
+                "DISH_DISP_DISTANCE_REW": 0,
+                "POT_DISTANCE_REW": 0,
+                "SOUP_DISTANCE_REW": 0,
+            },
+        )
+        return NewOvercookedEnv.from_mdp(mdp, horizon=horizon, objectives=objectives)
+
+    ACTIVE.update(
+        version="old",
+        Action=Action,
+        SCRIPT_AGENTS=SCRIPT_AGENTS,
+        SHAPED_INFOS=SHAPED_INFOS,
+    )
     mdp_params = {
         "layout_name": layout,
         "start_order_list": None,
@@ -122,18 +191,18 @@ def _make_random_agent(rng: np.random.RandomState) -> AgentFn:
     """
 
     def act(mdp, state, player_idx):
-        return Action.ALL_ACTIONS[rng.randint(len(Action.ALL_ACTIONS))]
+        all_actions = ACTIVE["Action"].ALL_ACTIONS
+        return all_actions[rng.randint(len(all_actions))]
 
     return act
 
 
 def _make_script_agent(name: str) -> AgentFn:
     """Wrap a `SCRIPT_AGENTS` entry, resetting it lazily on the first call."""
-    if name not in SCRIPT_AGENTS:
-        raise KeyError(
-            f"Unknown script agent {name!r}. Available: {sorted(SCRIPT_AGENTS)}"
-        )
-    agent = SCRIPT_AGENTS[name]()
+    registry = ACTIVE["SCRIPT_AGENTS"]
+    if name not in registry:
+        raise KeyError(f"Unknown script agent {name!r}. Available: {sorted(registry)}")
+    agent = registry[name]()
     state = {"started": False}
 
     def act(mdp, s, player_idx):
@@ -235,7 +304,7 @@ def rollout(
         "proportions_by_agent": env.objectives.proportions(per_agent=True),
         "episode": episode_info,
         "steps": steps,
-        "delivery_reward": env.mdp.delivery_reward,
+        "delivery_reward": getattr(env.mdp, "delivery_reward", None),
     }
 
 
@@ -265,14 +334,25 @@ def check_consistency(result: Dict) -> List[str]:
         return cum[:, names.index(name)]
 
     def event(key: str) -> np.ndarray:
-        return category[:, SHAPED_INFOS.index(key)]
+        return category[:, ACTIVE["SHAPED_INFOS"].index(key)]
 
     if "task_completion" in names:
-        implied = col("task_completion").sum() * result["delivery_reward"]
-        if not np.isclose(implied, episode["ep_sparse_r"]):
+        if result["delivery_reward"]:
+            # Single-recipe env: every delivery is worth the same, so the
+            # objective reproduces the sparse return exactly.
+            implied = col("task_completion").sum() * result["delivery_reward"]
+            if not np.isclose(implied, episode["ep_sparse_r"]):
+                failures.append(
+                    f"task_completion * delivery_reward = {implied} "
+                    f"!= ep_sparse_r = {episode['ep_sparse_r']}"
+                )
+        elif not np.allclose(col("task_completion"), event("delivery")):
+            # Multi-recipe env: recipes are priced individually, so the sparse
+            # return is not a multiple of the delivery count and TaskCompletion
+            # falls back to the raw counter. Check against that instead.
             failures.append(
-                f"task_completion * delivery_reward = {implied} "
-                f"!= ep_sparse_r = {episode['ep_sparse_r']}"
+                f"task_completion = {col('task_completion')} "
+                f"!= delivery = {event('delivery')}"
             )
 
     if "ingredient_prep" in names:
@@ -365,8 +445,9 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument(
         "--layout",
         default="random1",
-        choices=OLD_LAYOUTS,
-        help="Overcooked layout. random0 is partitioned and needs two different --script-agents.",
+        help="Overcooked layout. Anything outside OLD_LAYOUTS is treated as a "
+        "multi-recipe layout and driven through the 'new' env package. "
+        "random0 is partitioned and needs two different --script-agents.",
     )
     parser.add_argument("--horizon", type=int, default=400, help="Steps per episode.")
     parser.add_argument(
@@ -399,6 +480,13 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument(
         "--no-check", action="store_true", help="Skip the consistency checks."
     )
+    parser.add_argument(
+        "--version",
+        choices=("old", "new"),
+        default=None,
+        help="Env package. Defaults to 'old' for the six single-recipe layouts "
+        "and 'new' for everything else (the multi-recipe *_m layouts).",
+    )
     return parser.parse_args(argv)
 
 
@@ -408,7 +496,9 @@ def main(argv=None) -> int:
     # Fail fast on a bad --objectives spec, before building the env.
     objective_names = make_objective_vector(args.objectives).names
 
-    print(f"layout     : {args.layout}")
+    version = args.version or ("old" if args.layout in OLD_LAYOUTS else "new")
+
+    print(f"layout     : {args.layout}  (env version: {version})")
     print(
         f"agents     : {args.agents}"
         + (f" {args.script_agents}" if args.agents != "random" else "")
@@ -416,7 +506,10 @@ def main(argv=None) -> int:
     print(f"objectives : {objective_names}")
 
     env = build_env(
-        layout=args.layout, horizon=args.horizon, objectives=args.objectives
+        layout=args.layout,
+        horizon=args.horizon,
+        objectives=args.objectives,
+        version=version,
     )
     all_failures: List[str] = []
     totals = np.zeros((env.mdp.num_players, len(objective_names)))
