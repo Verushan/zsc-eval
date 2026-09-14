@@ -94,9 +94,13 @@ def entries(
     hsp_partners=None,
     hsp_exp=HSP_EXP,
     hsp_tags=None,
+    arm_config=None,
 ):
     """(name, policy_config, actor_path) for every policy in the pool."""
     out = []
+    # Arms trained with a widened observation (--use_morl_obs_weights) were
+    # built from their own policy config and cannot load the shared one.
+    arm_config = arm_config or {}
     peak_arms = PEAK_ARMS if peak_arms is None else peak_arms
     for arm in arms or ARMS:
         for seed in arm_seeds or ARM_SEEDS:
@@ -108,7 +112,7 @@ def entries(
                 out.append(
                     (
                         f"{arm}_s{seed}{suffix}",
-                        "mlp_policy_config.pkl",
+                        arm_config.get(arm, "mlp_policy_config.pkl"),
                         osp.join(layout, "fcp", "s1", arm, f"sp{seed}_{tag}_actor.pt"),
                     )
                 )
@@ -174,6 +178,15 @@ def main():
         help=f"Stage-1 arms to include (default {ARMS}). Needed for the anchored "
         "re-baseline, whose arms are named bench_morl-anc and so on to keep them "
         "out of the run set they supersede.",
+    )
+    parser.add_argument(
+        "--arm_config",
+        nargs="*",
+        default=[],
+        metavar="ARM=CONFIG",
+        help="Policy config file for an arm that cannot use the shared "
+        "mlp_policy_config.pkl, e.g. bench_morl_ad_obs-obs=mlp_policy_config_mow-anchored.pkl "
+        "for an arm trained with --use_morl_obs_weights.",
     )
     parser.add_argument(
         "--peak_arms",
@@ -287,6 +300,7 @@ def main():
             hsp_partners=hsp_partners,
             hsp_exp=args.hsp_exp,
             hsp_tags=args.hsp_tags,
+            arm_config=dict(kv.split("=", 1) for kv in args.arm_config),
         ):
             if not osp.exists(osp.join(POLICY_POOL_DIR, actor)):
                 if args.skip_missing:
