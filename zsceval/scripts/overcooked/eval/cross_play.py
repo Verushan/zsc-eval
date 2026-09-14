@@ -39,6 +39,7 @@ from loguru import logger
 from zsceval.config import get_config
 from zsceval.envs.env_wrappers import ShareSubprocDummyBatchVecEnv
 from zsceval.envs.overcooked.Overcooked_Env import Overcooked
+from zsceval.envs.overcooked_new.Overcooked_Env import Overcooked as Overcooked_new
 from zsceval.overcooked_config import get_overcooked_args
 from zsceval.utils.train_util import setup_seed
 
@@ -46,7 +47,12 @@ from zsceval.utils.train_util import setup_seed
 def make_eval_env(all_args, run_dir):
     def get_env_fn(rank):
         def init_env():
-            env = Overcooked(all_args, run_dir, rank=rank, evaluation=True)
+            # The class follows --overcooked_version exactly as train_sp does.
+            # This was the old class unconditionally, so a multi-recipe layout
+            # died looking for its .layout file in the wrong package -- after
+            # the pool had been built and every policy loaded.
+            env_cls = Overcooked if all_args.overcooked_version == "old" else Overcooked_new
+            env = env_cls(all_args, run_dir, rank=rank, evaluation=True)
             env.seed(all_args.seed * 50000 + rank * 10000)
             return env
 
