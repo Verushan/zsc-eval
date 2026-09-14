@@ -233,6 +233,11 @@ if __name__ == "__main__":
         "random1_m",
         "random3_m",
         "unident_s_m",
+        "random0_mx",
+        "random1_mx",
+        "random3_mx",
+        "unident_s_mx",
+        "unident_s_m",
         "academy_3_vs_1_with_keeper",
         "all",
     ]

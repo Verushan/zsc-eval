@@ -27,6 +27,11 @@ def main():
             "random0_m",
             "random1_m",
             "random3_m",
+            "unident_s_m",
+            "random0_mx",
+            "random1_mx",
+            "random3_mx",
+            "unident_s_mx",
         ]
     else:
         layouts = [args.layout]
