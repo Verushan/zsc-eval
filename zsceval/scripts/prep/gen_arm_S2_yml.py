@@ -57,6 +57,14 @@ ARM_POPULATIONS = {
     "bench_morl-anc": ["bench_morl-anc"],
     "bench_morl_ad-anc": ["bench_morl_ad-anc"],
     "bench_morl_div-anc": ["bench_morl_div-anc"],
+    # unident_s has no counter handoffs, so its anchored arms drop the dead
+    # coordination objective (anchored_live3) rather than carry a weight sink.
+    "bench_morl-live3": ["bench_morl-live3"],
+    "bench_morl_ad-live3": ["bench_morl_ad-live3"],
+    # Multi-recipe layouts, trained under the `recipe` objective set.
+    "bench_sp-rec": ["bench_sp-rec"],
+    "bench_morl-rec": ["bench_morl-rec"],
+    "bench_morl_ad-rec": ["bench_morl_ad-rec"],
 }
 
 HEADER = """\
