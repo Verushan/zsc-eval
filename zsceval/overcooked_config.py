@@ -148,6 +148,40 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         "channels. Requires --use_morl.",
     )
     parser.add_argument(
+        "--use_morl_obs_shares",
+        default=False,
+        action="store_true",
+        help="Append each agent's own and its partner's episode-to-date objective mix "
+        "to the observation as 2K extra channels. This is the state a partner-"
+        "conditioned policy needs and the grid does not carry: what the partner has "
+        "been doing, not just where it stands. Requires --morl_objectives; unlike "
+        "--use_morl_obs_weights it does not require --use_morl, so a hand-shaped "
+        "agent can be given the same state as an ablation.",
+    )
+    parser.add_argument(
+        "--morl_anneal_dense",
+        default=False,
+        action="store_true",
+        help="Multiply every non-task objective's weight by the annealed reward-"
+        "shaping factor, so the dense objectives act as a curriculum and the "
+        "reward the agent optimises at the end of training is the task alone -- "
+        "exactly what the hand-shaped baseline does with its shaping term. "
+        "Without this the MORL agent optimises event counts forever: at uniform w "
+        "deliveries are 17% of its reward on unident_s at convergence.",
+    )
+    parser.add_argument(
+        "--morl_adaptive_target",
+        choices=["fixed", "complement"],
+        default="fixed",
+        help="What the mirror descent update steers each agent's w toward. 'fixed' "
+        "is the --morl_weights mix, shared by both agents, against the *team's* "
+        "realised objective shares. 'complement' gives each agent its own w, "
+        "steered toward the objectives its partner is doing least of, against "
+        "the agent's *own* realised shares -- a fill-in rule. With 'complement' "
+        "the adaptive w modulates --morl_weights (K * w_adapt, so uniform w_adapt "
+        "leaves them unchanged) rather than replacing them.",
+    )
+    parser.add_argument(
         "--morl_diminishing_alpha",
         type=float,
         default=1.0,

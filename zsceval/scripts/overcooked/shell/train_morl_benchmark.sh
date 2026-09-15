@@ -52,6 +52,14 @@ case "${objectives}" in
     *)              uniform_w="0.25,0.25,0.25,0.25" ;;
 esac
 uniform_w=${MORL_WEIGHTS:-$uniform_w}
+# Task at the environment's delivery value, dense objectives at 3 (the
+# baseline's per-event shaping value), for the annealed arms.
+case "${objectives}" in
+    anchored_live3) ann_w="20,3,3" ;;
+    recipe)         ann_w="20,3,3,3,3,3" ;;
+    *)              ann_w="20,3,3,3" ;;
+esac
+ANN_WEIGHTS=${ANN_WEIGHTS:-$ann_w}
 # Appended to the W&B experiment_name only, never to the arm. Runs made under
 # a different objective set must not share an experiment_name with the ones
 # they replace: extract_sp_models filters on experiment_name, so a re-baseline
@@ -89,12 +97,38 @@ case "${arm}" in
         # width it was built for.
         morl_flags=(--use_morl --morl_objectives ${objectives} --morl_weights "${uniform_w}" --morl_adaptive_weights --use_morl_obs_weights)
         ;;
+    bench_morl_ann)
+        # Uniform-w MORL with the dense objectives annealed like the baseline's
+        # shaping term: task 20 per delivery (the environment's own value),
+        # every other objective 3 per event, and those 3s decay to 0 over the
+        # shaping horizon. What the agent optimises at the end of training is
+        # the task alone, which is the property the hand-shaped baseline had
+        # and every MORL arm so far lacked (deliveries were 17% of the
+        # converged MORL reward on unident_s).
+        morl_flags=(--use_morl --morl_objectives ${objectives} --morl_weights "${ANN_WEIGHTS}" --morl_anneal_dense)
+        ;;
+    bench_morl_fill)
+        # The partner-conditioned agent: annealed dense objectives as above,
+        # plus the state a partner-conditioned policy needs (own and partner
+        # objective mix, --use_morl_obs_shares; own w, --use_morl_obs_weights)
+        # and the complement rule, which steers each agent's w toward the
+        # objectives its partner is doing least of. Widens the observation by
+        # 3K channels; needs its own policy config to cross-play.
+        morl_flags=(--use_morl --morl_objectives ${objectives} --morl_weights "${ANN_WEIGHTS}" --morl_anneal_dense
+                    --morl_adaptive_weights --morl_adaptive_target complement
+                    --use_morl_obs_weights --use_morl_obs_shares)
+        ;;
+    bench_sp_shares)
+        # The baseline reward with the partner state. Isolates "does seeing
+        # what the partner does help" from everything MORL.
+        morl_flags=(--morl_objectives ${objectives} --use_morl_obs_shares)
+        ;;
     bench_morl_div)
         # Weights are per-seed; set inside the loop below.
         morl_flags=()
         ;;
     *)
-        echo "Unknown arm '${arm}'. Expected one of bench_sp bench_sparse bench_morl bench_morl_ad bench_morl_ad_obs bench_morl_div"
+        echo "Unknown arm '${arm}'. Expected one of bench_sp bench_sparse bench_morl bench_morl_ad bench_morl_ad_obs bench_morl_ann bench_morl_fill bench_sp_shares bench_morl_div"
         exit 1
         ;;
 esac

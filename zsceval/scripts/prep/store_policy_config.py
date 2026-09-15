@@ -151,6 +151,16 @@ def main():
         "bench_morl_ad_obs agent, which cannot load the shared config.",
     )
     parser.add_argument(
+        "--morl_obs_shares",
+        default=None,
+        metavar="OBJECTIVE_SET",
+        help="Write configs for an actor that sees its own and its partner's "
+        "objective mix (2K extra channels), as `*_mos-{SET}.pkl`; combined with "
+        "--morl_obs_weights the suffix is `_mow-{SET}_mos`. --use_morl_obs_shares "
+        "does not need --use_morl, so this config also serves a hand-shaped "
+        "agent given the partner state as an ablation.",
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Replace a config that already exists. Off by default: every policy "
@@ -162,10 +172,18 @@ def main():
     assert POLICY_POOL_DIR, "POLICY_POOL is unset; source .env first"
 
     configs = dict(CONFIGS)
-    if args.morl_obs_weights:
-        extra = morl_obs_flags(args.morl_obs_weights)
+    if args.morl_obs_weights or args.morl_obs_shares:
+        extra, suffix = [], ""
+        if args.morl_obs_weights:
+            extra += morl_obs_flags(args.morl_obs_weights)
+            suffix += f"_mow-{args.morl_obs_weights}"
+        if args.morl_obs_shares:
+            if args.morl_obs_weights and args.morl_obs_weights != args.morl_obs_shares:
+                raise SystemExit("--morl_obs_weights and --morl_obs_shares must name the same set")
+            extra += ["--morl_objectives", args.morl_obs_shares, "--use_morl_obs_shares"]
+            suffix += "_mos" if args.morl_obs_weights else f"_mos-{args.morl_obs_shares}"
         configs = {
-            name.replace(".pkl", f"_mow-{args.morl_obs_weights}.pkl"): base + extra
+            name.replace(".pkl", f"{suffix}.pkl"): base + extra
             for name, base in CONFIGS.items()
         }
     elif args.pid_obs_dim is not None:

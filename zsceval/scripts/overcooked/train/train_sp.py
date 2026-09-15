@@ -93,6 +93,9 @@ def parse_args(args, parser: argparse.ArgumentParser):
     assert not (
         all_args.use_morl_obs_weights and all_args.overcooked_version == "new"
     ), "--use_morl_obs_weights is only supported by --overcooked_version old"
+    assert not (
+        getattr(all_args, "use_morl_obs_shares", False) and all_args.overcooked_version == "new"
+    ), "--use_morl_obs_shares is only supported by --overcooked_version old"
 
     from zsceval.overcooked_config import OLD_LAYOUTS
 

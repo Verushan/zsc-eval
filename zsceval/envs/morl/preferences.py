@@ -141,10 +141,15 @@ class MirrorDescentPreferences:
         self._weights = self.target.copy()
         self.eta = self.eta_min
 
-    def update(self, proportions: Sequence[float]) -> np.ndarray:
+    def update(
+        self, proportions: Sequence[float], target: Optional[Sequence[float]] = None
+    ) -> np.ndarray:
         """Apply one mirror descent step and return the new ``w``.
 
         Args:
+            target: Per-call override of ``t``. The complement rule recomputes
+                the target every step from what the partner has done, so it
+                cannot be fixed at construction.
             proportions: The ``g`` of the update rule, normally
                 ``ObjectiveVector.proportions()``. Must be non-negative; it is
                 renormalised defensively so a caller passing raw cumulative
@@ -164,14 +169,15 @@ class MirrorDescentPreferences:
         total = g.sum()
         # An all-zero g carries no information (nothing has happened yet), so
         # fall back to the target rather than dividing by zero.
-        g = g / total if total > 0 else self.target.copy()
+        t = self.target if target is None else self._normalise_target(target)
+        g = g / total if total > 0 else t.copy()
 
         if self._var_max > 0:
             s = float(np.clip(g.var() / self._var_max, 0.0, 1.0))
             self.eta = self.eta_min + (self.eta_max - self.eta_min) * s
             # exp() of a shifted exponent is identical after renormalisation and
             # cannot overflow, which matters once eta_max is turned up.
-            exponent = self.eta * (self.target - g)
+            exponent = self.eta * (t - g)
             updated = self._weights * np.exp(exponent - exponent.max())
             total = updated.sum()
             if total > 0:

@@ -555,6 +555,20 @@ class Overcooked(gym.Env):
         morl_objectives = getattr(all_args, "morl_objectives", None)
         if self.use_morl and morl_objectives is None:
             morl_objectives = "default"
+        # Partner-conditioning state: both agents' episode-to-date objective mix.
+        # Needs the objective vector to exist, not the MORL reward, so it can be
+        # given to a hand-shaped agent as an ablation.
+        self.use_morl_obs_shares = bool(getattr(all_args, "use_morl_obs_shares", False))
+        if self.use_morl_obs_shares and morl_objectives is None:
+            raise ValueError(
+                "--use_morl_obs_shares needs an objective vector to report shares "
+                "of; pass --morl_objectives"
+            )
+        # The complement rule gives each agent its own w; everything that reads
+        # `morl_weights` for a single vector goes through `_weights_for(a)`.
+        self.morl_adaptive_target = getattr(all_args, "morl_adaptive_target", "fixed")
+        self.morl_weights_by_agent = None
+        self.morl_preferences_by_agent = None
 
         mdp_params = {"layout_name": all_args.layout_name, "start_order_list": None}
         # MARK: use reward shaping
@@ -583,6 +597,8 @@ class Overcooked(gym.Env):
         )
         if self.use_morl:
             self._setup_morl(all_args)
+        if self.use_morl_obs_shares:
+            self.morl_num_objectives = len(self.base_env.objectives)
         self.mlp = MediumLevelPlanner.from_pickle_or_compute(
             mdp=self.base_mdp, mlp_params=NO_COUNTERS_PARAMS, force_compute=False
         )
@@ -710,7 +726,35 @@ class Overcooked(gym.Env):
         self.morl_weight_update_interval = max(
             1, int(getattr(all_args, "morl_weight_update_interval", 1))
         )
-        if self.morl_adaptive_weights:
+        # --morl_anneal_dense: every objective that is not the task itself is
+        # scaled by the annealed reward-shaping factor, so the reward converges
+        # to the task the way the hand-shaped baseline's does. `task_completion`
+        # and its valued variant are the task.
+        self.morl_anneal_dense = bool(getattr(all_args, "morl_anneal_dense", False))
+        self.morl_dense_mask = np.array(
+            [not n.startswith("task_completion") for n in self.morl_objective_names],
+            dtype=np.float64,
+        )
+        self.morl_base_weights = self.morl_weights.copy()
+        if self.morl_adaptive_weights and self.morl_adaptive_target == "complement":
+            # One update per agent. The target is recomputed every step from the
+            # partner's realised mix, so the constructor's target is only the
+            # reset value (uniform: nothing is known about the partner yet).
+            self.morl_preferences = None
+            self.morl_preferences_by_agent = [
+                MirrorDescentPreferences(
+                    num_objectives=num_objectives,
+                    eta_min=getattr(all_args, "morl_eta_min", 1e-4),
+                    eta_max=getattr(all_args, "morl_eta_max", 5e-3),
+                    target=None,
+                    floor=getattr(all_args, "morl_weight_floor", 0.01),
+                )
+                for _ in range(self.num_agents)
+            ]
+            self.morl_weights_by_agent = np.stack(
+                [p.weights for p in self.morl_preferences_by_agent]
+            )
+        elif self.morl_adaptive_weights:
             # The initial weights double as the mirror descent target t, so
             # --morl_weights sets the objective mix the update steers towards.
             self.morl_preferences = MirrorDescentPreferences(
@@ -730,6 +774,8 @@ class Overcooked(gym.Env):
             "weights": self.morl_weights.tolist(),
             "scale": self.morl_reward_scale,
             "adaptive": self.morl_adaptive_weights,
+            "adaptive_target": self.morl_adaptive_target,
+            "anneal_dense": self.morl_anneal_dense,
         }
         logger.debug(
             "morl reward:\n" + pprint.pformat(morl_dict, compact=True, width=120)
@@ -748,7 +794,60 @@ class Overcooked(gym.Env):
             so no swap is needed here -- unlike HSP, whose w0/w1 belong to the
             ego agent rather than to the player slot.
         """
-        return self.morl_reward_scale * np.asarray(vec_r_by_agent) @ self.morl_weights
+        vec = np.asarray(vec_r_by_agent, dtype=np.float64)
+        w = np.stack([self._effective_weights(a) for a in range(self.num_agents)])
+        return self.morl_reward_scale * np.einsum("ak,ak->a", vec, w)
+
+    def _weights_for(self, a):
+        """The preference vector agent `a` (base env slot) is scalarised with."""
+        if self.morl_weights_by_agent is not None:
+            return self.morl_weights_by_agent[a]
+        return self.morl_weights
+
+    def _dense_anneal(self):
+        """0..1 multiplier on the non-task objectives under --morl_anneal_dense."""
+        if not self.morl_anneal_dense:
+            return 1.0
+        init = self._initial_reward_shaping_factor
+        return float(self.reward_shaping_factor / init) if init > 0 else 1.0
+
+    def _effective_weights(self, a):
+        """What the reward actually multiplies the objective vector by.
+
+        fixed target:  w (the adaptive w replaces --morl_weights, as before)
+        complement:    --morl_weights * K * w_adapt, so the adaptive vector
+                       modulates a base scale rather than resetting it to 1/K
+        Either way the non-task entries are then scaled by the anneal factor.
+        """
+        if self.morl_weights_by_agent is not None:
+            w = self.morl_base_weights * self.morl_num_objectives * self.morl_weights_by_agent[a]
+        else:
+            w = np.asarray(self.morl_weights, dtype=np.float64)
+        anneal = self._dense_anneal()
+        if anneal < 1.0:
+            w = w * (1.0 - self.morl_dense_mask * (1.0 - anneal))
+        return w
+
+    def _complement_update(self):
+        """The fill-in rule: steer each agent's w toward what its partner neglects.
+
+        For agent `a`, `g` is its *own* realised objective mix and the target is
+        the complement of the partner's fraction of each objective -- if the
+        partner has done all the plating, plating's target share for `a` goes to
+        zero and its weight decays to the floor; if the partner has done none, it
+        rises. Before anything has happened every fraction is 1/2 and the target
+        is uniform, so the first steps of an episode are no-ops.
+        """
+        cum = self.base_env.objectives.cumulative
+        for a in range(self.num_agents):
+            own = cum[a]
+            partner = cum[[o for o in range(self.num_agents) if o != a]].sum(axis=0)
+            tot = own + partner
+            frac = np.where(tot > 0, partner / np.maximum(tot, 1e-12), 0.5)
+            target = (1.0 - frac) + 1e-3
+            self.morl_weights_by_agent[a] = self.morl_preferences_by_agent[a].update(
+                own, target=target / target.sum()
+            )
 
     def _update_morl_weights(self):
         """Advance the preference weights by one mirror descent step.
@@ -758,9 +857,12 @@ class Overcooked(gym.Env):
         while nothing has happened yet, making early-episode updates no-ops
         rather than divisions by zero.
         """
-        if self.morl_preferences is None:
+        if self.morl_preferences is None and self.morl_preferences_by_agent is None:
             return
         if self.step_count % self.morl_weight_update_interval != 0:
+            return
+        if self.morl_preferences_by_agent is not None:
+            self._complement_update()
             return
         self.morl_weights = self.morl_preferences.update(
             self.base_env.objectives.proportions()
@@ -786,6 +888,12 @@ class Overcooked(gym.Env):
                 obs_shape[0],
                 obs_shape[1],
                 obs_shape[2] + self.morl_num_objectives,
+            )
+        if self.use_morl_obs_shares:
+            obs_shape = (
+                obs_shape[0],
+                obs_shape[1],
+                obs_shape[2] + self.num_agents * self.morl_num_objectives,
             )
         if self.use_agent_policy_id_obs:
             obs_shape = (
@@ -823,6 +931,12 @@ class Overcooked(gym.Env):
                 share_obs_shape[1],
                 share_obs_shape[2] + self.morl_num_objectives,
             ]
+        if self.use_morl_obs_shares:
+            share_obs_shape = [
+                share_obs_shape[0],
+                share_obs_shape[1],
+                share_obs_shape[2] + self.num_agents * self.morl_num_objectives,
+            ]
         share_obs_shape = [
             share_obs_shape[0],
             share_obs_shape[1],
@@ -836,7 +950,7 @@ class Overcooked(gym.Env):
     def _set_agent_policy_id(self, agent_policy_id):
         self.agent_policy_id = agent_policy_id
 
-    def _weight_planes(self, ob, scale):
+    def _weight_planes(self, ob, scale, a=0):
         """`w` broadcast over the grid as K constant channels.
 
         `scale` matches whatever the surrounding observation is on: the ppo
@@ -844,8 +958,37 @@ class Overcooked(gym.Env):
         two orders of magnitude below every other feature and effectively
         invisible to the network.
         """
-        w = np.asarray(self.morl_weights, dtype=np.float32).reshape(1, 1, -1)
+        w = np.asarray(self._weights_for(a), dtype=np.float32).reshape(1, 1, -1)
         return np.ones((*ob.shape[:2], self.morl_num_objectives), dtype=np.float32) * w * scale
+
+    def _share_planes(self, ob, scale, a):
+        """Agent `a`'s own and its partner's objective mix, 2K constant channels.
+
+        Each is the agent's episode-to-date objective vector normalised to sum
+        to one (uniform while it has done nothing), so the channels say *what
+        kind* of work each side has been doing rather than how much. This is
+        the state the grid does not carry: a partner that has never plated
+        looks, in the grid, exactly like one that plates constantly.
+        """
+        props = self.base_env.objectives.proportions(per_agent=True)
+        others = [o for o in range(self.num_agents) if o != a]
+        feat = np.concatenate([props[a]] + [props[o] for o in others]).astype(np.float32)
+        return (
+            np.ones((*ob.shape[:2], feat.shape[0]), dtype=np.float32)
+            * feat.reshape(1, 1, -1)
+            * scale
+        )
+
+    def _append_morl_shares(self, obs, scale=255.0):
+        """Append own/partner objective shares to each agent's observation."""
+        out = []
+        for a, ob in enumerate(obs):
+            if ob.ndim != 3:
+                raise ValueError(
+                    "--use_morl_obs_shares expects the grid ('ppo') featurisation"
+                )
+            out.append(np.concatenate([ob, self._share_planes(ob, scale, a)], axis=-1))
+        return tuple(out)
 
     def _encode_policy_id(self, policy_id):
         """One partner's identity as a feature vector.
@@ -909,7 +1052,7 @@ class Overcooked(gym.Env):
         episode's weights into the first step of the next one.
         """
         out = []
-        for ob in obs:
+        for a, ob in enumerate(obs):
             if ob.ndim != 3:
                 raise ValueError(
                     "--use_morl_obs_weights expects the grid ('ppo') featurisation, "
@@ -917,7 +1060,7 @@ class Overcooked(gym.Env):
                     "and have no channel axis to append to"
                 )
             out.append(
-                np.concatenate([ob, self._weight_planes(ob, scale)], axis=-1)
+                np.concatenate([ob, self._weight_planes(ob, scale, a)], axis=-1)
             )
         return tuple(out)
 
@@ -939,6 +1082,8 @@ class Overcooked(gym.Env):
             # scale 1.0: the concatenated result is multiplied by 255 below, so
             # the weights end up on the same footing as every other channel.
             share_obs = list(self._append_morl_weights(share_obs, scale=1.0))
+        if self.use_morl_obs_shares:
+            share_obs = list(self._append_morl_shares(share_obs, scale=1.0))
         share_obs0 = np.concatenate([share_obs[0], share_obs[1]], axis=-1) * 255
         share_obs1 = np.concatenate([share_obs[1], share_obs[0]], axis=-1) * 255
         return np.stack([share_obs0, share_obs1], axis=0)  # shape (2, *obs_shape)
@@ -1192,7 +1337,11 @@ class Overcooked(gym.Env):
                 cumulative_morl_reward = self.cumulative_morl_reward
                 info["episode"]["ep_morl_r_by_agent"] = cumulative_morl_reward.copy()
                 info["episode"]["ep_morl_r"] = cumulative_morl_reward.sum()
-                info["episode"]["ep_morl_weights"] = self.morl_weights.copy()
+                info["episode"]["ep_morl_weights"] = (
+                    self.morl_weights_by_agent.mean(axis=0)
+                    if self.morl_weights_by_agent is not None
+                    else self.morl_weights.copy()
+                )
             info["bad_transition"] = True
         else:
             info["bad_transition"] = False
@@ -1213,6 +1362,8 @@ class Overcooked(gym.Env):
             # _update_morl_weights() has already run for this transition, so the
             # agent observes the w that will scalarize its *next* reward.
             both_agents_ob = self._append_morl_weights(both_agents_ob)
+        if self.use_morl_obs_shares:
+            both_agents_ob = self._append_morl_shares(both_agents_ob)
         if self.use_agent_policy_id_obs:
             both_agents_ob = self._append_policy_id(both_agents_ob)
 
@@ -1280,6 +1431,12 @@ class Overcooked(gym.Env):
             if self.morl_preferences is not None:
                 self.morl_preferences.reset()
                 self.morl_weights = self.morl_preferences.weights
+            if self.morl_preferences_by_agent is not None:
+                for p in self.morl_preferences_by_agent:
+                    p.reset()
+                self.morl_weights_by_agent = np.stack(
+                    [p.weights for p in self.morl_preferences_by_agent]
+                )
 
         share_obs = self._gen_share_observation(self.base_env.state)
         available_actions = self._get_available_actions()
@@ -1288,6 +1445,8 @@ class Overcooked(gym.Env):
 
         if self.use_morl_obs_weights:
             both_agents_ob = self._append_morl_weights(both_agents_ob)
+        if self.use_morl_obs_shares:
+            both_agents_ob = self._append_morl_shares(both_agents_ob)
         if self.use_agent_policy_id_obs:
             # PartialPolicyEnv.reset() calls _set_agent_policy_id before the inner
             # reset, so the ids in hand here are the ones for the episode about
