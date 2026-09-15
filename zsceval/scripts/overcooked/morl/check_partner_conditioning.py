@@ -102,6 +102,19 @@ assert obs[0].shape == env.ppo_observation_space.shape == (9, 5, 26), obs[0].sha
 assert share.shape[-1] == 52
 print("widths ok:", obs[0].shape, share.shape, "shaped reward path:", rew)
 
+print("\n== team task credit")
+env = make(["--use_morl", "--morl_weights", "20,3,3", "--morl_anneal_dense", "--morl_team_task"])
+env.reset(); step(env)
+vec = np.array([[1.0, 0.0, 0.0], [0.0, 2.0, 0.0]])  # agent 0 delivers, agent 1 preps twice
+r = env._morl_reward(vec)
+print("reward [deliverer, prepper]:", r)
+assert np.allclose(r, [20.0, 20.0 + 6.0]), r  # both get the delivery; only 1 gets its prep
+env.reward_shaping_factor = 0.0
+assert np.allclose(env._morl_reward(vec), [20.0, 20.0])
+env2 = make(["--use_morl", "--morl_weights", "20,3,3", "--morl_anneal_dense"])
+env2.reset(); step(env2)
+assert np.allclose(env2._morl_reward(vec), [20.0, 6.0])  # per-agent credit without the flag
+
 print("\n== legacy adaptive arm unchanged")
 env = make(["--use_morl", "--morl_adaptive_weights", "--use_morl_obs_weights"])
 env.reset(); obs, share, rew = step(env)

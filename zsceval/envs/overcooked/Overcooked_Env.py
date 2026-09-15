@@ -736,6 +736,11 @@ class Overcooked(gym.Env):
             dtype=np.float64,
         )
         self.morl_base_weights = self.morl_weights.copy()
+        # --morl_team_task: the task columns are summed over agents and every
+        # agent is credited with the team total, matching the baseline's
+        # team-shared sparse reward.
+        self.morl_team_task = bool(getattr(all_args, "morl_team_task", False))
+        self.morl_task_mask = 1.0 - self.morl_dense_mask
         if self.morl_adaptive_weights and self.morl_adaptive_target == "complement":
             # One update per agent. The target is recomputed every step from the
             # partner's realised mix, so the constructor's target is only the
@@ -776,6 +781,7 @@ class Overcooked(gym.Env):
             "adaptive": self.morl_adaptive_weights,
             "adaptive_target": self.morl_adaptive_target,
             "anneal_dense": self.morl_anneal_dense,
+            "team_task": self.morl_team_task,
         }
         logger.debug(
             "morl reward:\n" + pprint.pformat(morl_dict, compact=True, width=120)
@@ -795,6 +801,9 @@ class Overcooked(gym.Env):
             ego agent rather than to the player slot.
         """
         vec = np.asarray(vec_r_by_agent, dtype=np.float64)
+        if self.morl_team_task:
+            team = vec.sum(axis=0, keepdims=True) * self.morl_task_mask
+            vec = vec * self.morl_dense_mask + team
         w = np.stack([self._effective_weights(a) for a in range(self.num_agents)])
         return self.morl_reward_scale * np.einsum("ak,ak->a", vec, w)
 

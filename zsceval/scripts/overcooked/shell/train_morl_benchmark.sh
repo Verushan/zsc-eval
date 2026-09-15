@@ -60,6 +60,11 @@ case "${objectives}" in
     *)              ann_w="20,3,3,3" ;;
 esac
 ANN_WEIGHTS=${ANN_WEIGHTS:-$ann_w}
+# MORL_TEAM_TASK=1 credits deliveries to the team, as the baseline does. The
+# annealed arms need it: with per-agent credit the prepper is paid nothing at
+# the end of training and the run converges at the sparse-only level.
+team_flag=()
+[ "${MORL_TEAM_TASK:-0}" = "1" ] && team_flag=(--morl_team_task)
 # Appended to the W&B experiment_name only, never to the arm. Runs made under
 # a different objective set must not share an experiment_name with the ones
 # they replace: extract_sp_models filters on experiment_name, so a re-baseline
@@ -105,7 +110,7 @@ case "${arm}" in
         # the task alone, which is the property the hand-shaped baseline had
         # and every MORL arm so far lacked (deliveries were 17% of the
         # converged MORL reward on unident_s).
-        morl_flags=(--use_morl --morl_objectives ${objectives} --morl_weights "${ANN_WEIGHTS}" --morl_anneal_dense)
+        morl_flags=(--use_morl --morl_objectives ${objectives} --morl_weights "${ANN_WEIGHTS}" --morl_anneal_dense "${team_flag[@]}")
         ;;
     bench_morl_fill)
         # The partner-conditioned agent: annealed dense objectives as above,
@@ -114,7 +119,7 @@ case "${arm}" in
         # and the complement rule, which steers each agent's w toward the
         # objectives its partner is doing least of. Widens the observation by
         # 3K channels; needs its own policy config to cross-play.
-        morl_flags=(--use_morl --morl_objectives ${objectives} --morl_weights "${ANN_WEIGHTS}" --morl_anneal_dense
+        morl_flags=(--use_morl --morl_objectives ${objectives} --morl_weights "${ANN_WEIGHTS}" --morl_anneal_dense "${team_flag[@]}"
                     --morl_adaptive_weights --morl_adaptive_target complement
                     --use_morl_obs_weights --use_morl_obs_shares)
         ;;

@@ -170,6 +170,20 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         "deliveries are 17% of its reward on unident_s at convergence.",
     )
     parser.add_argument(
+        "--morl_team_task",
+        default=False,
+        action="store_true",
+        help="Credit the task objective(s) to both agents as the team total, the "
+        "way the baseline's sparse reward is (`sparse_reward = sum over agents`). "
+        "Without this a delivery pays only the agent that delivered it, so under "
+        "--morl_anneal_dense the agent that prepped it is paid nothing at the end "
+        "of training and each agent learns to run the whole loop alone: the first "
+        "annealed seed converged at 195, the sparse-only level, against the "
+        "baseline's 470. Also means the `bench_sparse` control was never the "
+        "baseline's reward. The dense objectives stay per-agent, as the baseline's "
+        "shaping term is.",
+    )
+    parser.add_argument(
         "--morl_adaptive_target",
         choices=["fixed", "complement"],
         default="fixed",
