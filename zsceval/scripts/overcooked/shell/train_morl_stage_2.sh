@@ -110,12 +110,28 @@ if [[ -n "${PID_OBS}" ]]; then
     pid_flags="--use_agent_policy_id_obs --agent_policy_id_obs_dim ${pid_dim}"
 fi
 
+# EGO_FLAGS: extra flags for the trainable agent's reward and observation --
+# the MORL ego. The population is unchanged; only what the trainee optimises
+# and sees differs. The env is built with these flags, so both seats get the
+# MORL reward (the frozen partner's is discarded) and the widened observation
+# (frozen partners are trimmed back by EvalPolicy.fit_obs). The trainee's own
+# spaces come from the live env via override_policy_config, so no policy
+# config needs writing for training; cross-play does (store_policy_config).
+#
+#   EGO_FLAGS="--use_morl --morl_objectives anchored_live3 --morl_weights 20,3,3 \
+#              --morl_anneal_dense --morl_team_task" bash shell/train_morl_stage_2.sh ...
+ego_flags=${EGO_FLAGS:-}
+
+
 ulimit -n 65536 || ulimit -n 4096
 
 echo "env ${env}, layout ${layout}, arm ${arm}, population ${population_size}, seeds ${seed_begin}..${seed_max}, steps ${num_env_steps}"
 echo "${episodes} updates at ${ROLLOUT_THREADS} rollout threads: log every ${log_interval}, eval every ${eval_interval}"
 if [[ -n "${pid_flags}" ]]; then
     echo "partner-id observation: ${pid_flags}"
+fi
+if [[ -n "${ego_flags}" ]]; then
+    echo "ego flags: ${ego_flags}"
 fi
 echo "population yml: ${yml}"
 for seed in $(seq ${seed_begin} ${seed_max}); do
@@ -132,7 +148,7 @@ for seed in $(seq ${seed_begin} ${seed_max}); do
         --use_eval --eval_interval ${eval_interval} --n_eval_rollout_threads ${n_eval_rollout_threads} --eval_episodes ${eval_episodes} \
         --population_yaml_path "${yml}" \
         --population_size ${population_size} --adaptive_agent_name fcp_adaptive --use_agent_policy_id \
-        ${pid_flags} \
+        ${pid_flags} ${ego_flags} \
         --use_proper_time_limits \
         --wandb_tags morl-s2 ${arm} \
         --wandb_name $WANDB_ENTITY || exit 1

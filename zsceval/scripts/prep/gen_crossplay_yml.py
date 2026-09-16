@@ -95,12 +95,14 @@ def entries(
     hsp_exp=HSP_EXP,
     hsp_tags=None,
     arm_config=None,
+    s2_arm_config=None,
 ):
     """(name, policy_config, actor_path) for every policy in the pool."""
     out = []
     # Arms trained with a widened observation (--use_morl_obs_weights) were
     # built from their own policy config and cannot load the shared one.
     arm_config = arm_config or {}
+    s2_arm_config = s2_arm_config or {}
     peak_arms = PEAK_ARMS if peak_arms is None else peak_arms
     for arm in arms or ARMS:
         for seed in arm_seeds or ARM_SEEDS:
@@ -129,7 +131,7 @@ def entries(
             out.append(
                 (
                     f"s2_{arm}_s{seed}",
-                    "rnn_policy_config.pkl",
+                    s2_arm_config.get(arm, "rnn_policy_config.pkl"),
                     osp.join(layout, "fcp", "s2", f"fcp-S2-{arm}{s2_suffix}", f"{seed}.pt"),
                 )
             )
@@ -187,6 +189,15 @@ def main():
         help="Policy config file for an arm that cannot use the shared "
         "mlp_policy_config.pkl, e.g. bench_morl_ad_obs-obs=mlp_policy_config_mow-anchored.pkl "
         "for an arm trained with --use_morl_obs_weights.",
+    )
+    parser.add_argument(
+        "--s2_arm_config",
+        nargs="*",
+        default=[],
+        metavar="ARM=CONFIG",
+        help="Policy config for a stage-2 arm whose trainee was given a widened "
+        "observation (a MORL ego with --use_morl_obs_shares), e.g. "
+        "bench_sp-fillego=rnn_policy_config_mow-anchored_live3_mos.pkl.",
     )
     parser.add_argument(
         "--peak_arms",
@@ -301,6 +312,7 @@ def main():
             hsp_exp=args.hsp_exp,
             hsp_tags=args.hsp_tags,
             arm_config=dict(kv.split("=", 1) for kv in args.arm_config),
+            s2_arm_config=dict(kv.split("=", 1) for kv in args.s2_arm_config),
         ):
             if not osp.exists(osp.join(POLICY_POOL_DIR, actor)):
                 if args.skip_missing:
