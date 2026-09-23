@@ -58,8 +58,12 @@ def main():
         ]
     out = osp.join(POLICY_POOL, args.layout, "fcp", "s2", f"train-{args.name}.yml")
     os.makedirs(osp.dirname(out), exist_ok=True)
-    with open(out, "w") as f:
+    # Concurrent array tasks all write this file; a rename is atomic, so none
+    # of them can read a half-written population.
+    tmp = f"{out}.{os.getpid()}.tmp"
+    with open(tmp, "w") as f:
         f.write("\n".join(lines) + "\n")
+    os.replace(tmp, out)
     print(f"{args.name} {len(args.partners)} {out}")
     # The swap pool is the same set of scripts, by SCRIPT_AGENTS key.
     print("swap pool: " + ",".join(SCRIPTS[p] for p in args.partners))
