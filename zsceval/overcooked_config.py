@@ -185,7 +185,7 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
     )
     parser.add_argument(
         "--morl_adaptive_target",
-        choices=["fixed", "complement"],
+        choices=["fixed", "complement", "neglect"],
         default="fixed",
         help="What the mirror descent update steers each agent's w toward. 'fixed' "
         "is the --morl_weights mix, shared by both agents, against the *team's* "
@@ -194,6 +194,33 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         "the agent's *own* realised shares -- a fill-in rule. With 'complement' "
         "the adaptive w modulates --morl_weights (K * w_adapt, so uniform w_adapt "
         "leaves them unchanged) rather than replacing them.",
+    )
+    parser.add_argument(
+        "--morl_neglect_halflife",
+        type=float,
+        default=50.0,
+        help="--morl_adaptive_target neglect: half-life, in steps, of the decaying "
+        "counts of who did which task. Short enough that the weights turn over "
+        "within an episode after a partner swap.",
+    )
+    parser.add_argument(
+        "--script_swap_steps",
+        type=str,
+        default="",
+        help="Comma-separated steps at which a scripted partner may be swapped for "
+        "another, e.g. '200'. Applies only to seats holding a scripted partner.",
+    )
+    parser.add_argument(
+        "--script_swap_pool",
+        type=str,
+        default="",
+        help="Comma-separated SCRIPT_AGENTS names a swap draws the new partner from.",
+    )
+    parser.add_argument(
+        "--script_swap_prob",
+        type=float,
+        default=0.0,
+        help="Probability that a scripted partner is swapped at each swap step.",
     )
     parser.add_argument(
         "--morl_diminishing_alpha",

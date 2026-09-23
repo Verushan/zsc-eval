@@ -13,6 +13,19 @@ POLICY_POOL_PATH = os.environ["POLICY_POOL"]
 ACTOR_POOL_PATH = os.environ.get("EVOLVE_ACTOR_POOL")
 
 
+class _ScriptSeat:
+    """Marks a seat whose actions the env's scripted partner supplies."""
+
+    def reset(self, *args, **kwargs):
+        pass
+
+    def register_control_agent(self, *args, **kwargs):
+        pass
+
+
+SCRIPT_SEAT = _ScriptSeat()
+
+
 def extract(x, a):
     if x is None:
         return x
@@ -62,11 +75,28 @@ class PartialPolicyEnv:
         assert len(load_policy_config) == self.num_agents
         for a in range(self.num_agents):
             if load_policy_config[a] is None:
+                if self.policy[a] is SCRIPT_SEAT:
+                    self.__env.set_script_agent(a, None)
                 self.policy[a] = None
                 self.policy_name[a] = None
                 self.agent_policy_id[a] = -1.0
             else:
                 policy_name, policy_info = load_policy_config[a]
+                featurize = str(policy_info.get("featurize_type", ""))
+                if featurize.startswith("script:"):
+                    # A scripted partner: the env plays it, from the true state.
+                    # The population entry still carries a policy config, so the
+                    # policy and trainer pools can hold it like any frozen
+                    # member, but that network never acts.
+                    if policy_name != self.policy_name[a]:
+                        self.__env.set_script_agent(a, featurize[len("script:"):])
+                        self.policy[a] = SCRIPT_SEAT
+                        self.policy_name[a] = policy_name
+                        self.agent_policy_id[a] = policy_info["id"]
+                        self.policy_obs_width[a] = None
+                    continue
+                if self.policy[a] is SCRIPT_SEAT:
+                    self.__env.set_script_agent(a, None)
                 if policy_name != self.policy_name[a]:
                     policy_config_path = os.path.join(POLICY_POOL_PATH, policy_info["policy_config_path"])
                     policy_config = pickle.load(open(policy_config_path, "rb"))
@@ -127,7 +157,10 @@ class PartialPolicyEnv:
 
     def step(self, actions):
         for a in range(self.num_agents):
-            if self.policy[a] is not None:
+            if self.policy[a] is SCRIPT_SEAT:
+                assert actions[a] is None, "Expected None action for policy already set in parallel envs."
+                actions[a] = np.array([4])  # placeholder; the env substitutes the script's move
+            elif self.policy[a] is not None:
                 assert actions[a] is None, "Expected None action for policy already set in parallel envs."
                 actions[a] = self.policy[a].step(
                     np.array([self._policy_obs(a)]),

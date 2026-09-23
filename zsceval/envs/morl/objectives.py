@@ -203,6 +203,39 @@ def IngredientPrep(scale: float = 1.0) -> EventCountObjective:
     )
 
 
+# The kitchen's jobs as separate objectives (see envs/morl/tasks.py). `plating`
+# below lumps fetching a dish with scooping a soup; the task view keeps them
+# apart, because a partner who fetches dishes but never plates leaves a
+# different job undone from one who does neither. Each counts exactly the event
+# the hand-shaped reward pays for, so the `tasks` preset at weights 20,3,3,5
+# with team delivery credit and annealing *is* the hand-shaped reward.
+def FillPot(scale: float = 1.0) -> EventCountObjective:
+    return EventCountObjective(
+        name="fill_pot",
+        event_keys=("PLACEMENT_IN_POT",),
+        description="An ingredient placed into a pot with room for it.",
+        scale=scale,
+    )
+
+
+def FetchDish(scale: float = 1.0) -> EventCountObjective:
+    return EventCountObjective(
+        name="fetch_dish",
+        event_keys=("USEFUL_DISH_PICKUP",),
+        description="A dish taken from the dispenser while a soup is on its way without one.",
+        scale=scale,
+    )
+
+
+def PlateSoup(scale: float = 1.0) -> EventCountObjective:
+    return EventCountObjective(
+        name="plate_soup",
+        event_keys=("SOUP_PICKUP",),
+        description="A finished soup scooped out of its pot.",
+        scale=scale,
+    )
+
+
 def Plating(scale: float = 1.0) -> EventCountObjective:
     """Sub-task efficiency: getting a finished soup out of the pot and onto a dish."""
     return EventCountObjective(
@@ -637,6 +670,9 @@ OBJECTIVE_REGISTRY: Dict[str, Callable[[], Objective]] = {
     "task_completion_valued": lambda: TaskCompletion(scale=20.0),
     "recipe_quality": RecipeQuality,
     "recipe_value": RecipeValue,
+    "fill_pot": FillPot,
+    "fetch_dish": FetchDish,
+    "plate_soup": PlateSoup,
 }
 
 # Named presets
@@ -713,6 +749,9 @@ OBJECTIVE_SETS: Dict[str, List[str]] = {
         "recipe_quality",
         "recipe_value",
     ],
+    # The fill-in suite's task view: deliveries plus the three jobs that lead to
+    # one. Old (onion-only) layouts; see FillPot above.
+    "tasks": ["task_completion", "fill_pot", "fetch_dish", "plate_soup"],
 }
 
 

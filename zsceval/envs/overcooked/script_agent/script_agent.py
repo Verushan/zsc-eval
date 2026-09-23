@@ -144,7 +144,15 @@ class Random3_Only_Onion_to_Middle_Agent(RandomScriptAgent):
         super().__init__({"random3_only_onion_to_middle": dict(prob=1.0, args=dict())})
 
 
+class Idle_Agent(BaseScriptAgent):
+    """A partner who does nothing, so the other cook must run the whole kitchen."""
+
+    def step(self, mdp, state, player_idx):
+        return (0, 0)  # Action.STAY
+
+
 SCRIPT_AGENTS = {
+    "idle": Idle_Agent,
     "place_onion_in_pot": functools.partial(SinglePeriodScriptAgent, period_name="pickup_onion_and_place_in_pot"),
     "deliver_soup": functools.partial(SinglePeriodScriptAgent, period_name="pickup_soup_and_deliver"),
     "place_onion_and_deliver_soup": Place_Onion_and_Deliver_Soup_Agent,

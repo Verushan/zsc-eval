@@ -567,6 +567,7 @@ class Overcooked(gym.Env):
         # The complement rule gives each agent its own w; everything that reads
         # `morl_weights` for a single vector goes through `_weights_for(a)`.
         self.morl_adaptive_target = getattr(all_args, "morl_adaptive_target", "fixed")
+        self.morl_neglect = False
         self.morl_weights_by_agent = None
         self.morl_preferences_by_agent = None
 
@@ -633,6 +634,21 @@ class Overcooked(gym.Env):
             "ppo": self.featurize_fn_ppo,
             "bc": self.featurize_fn_bc,
         }
+        # A seat can hold a scripted partner, installed either by the stage-2
+        # trainer (PartialPolicyEnv.load_policy -> set_script_agent) or by an
+        # eval featurize type of the form "script:NAME". `_script_base` is the
+        # partner the seat was given; `_script_current` differs from it only
+        # after a mid-episode swap, and reset() puts the base partner back.
+        self.script_agent = [None, None]
+        self._script_base = [None, None]
+        self._script_current = [None, None]
+        self.script_swap_steps = {
+            int(x) for x in str(getattr(all_args, "script_swap_steps", "") or "").split(",") if x.strip()
+        }
+        self.script_swap_pool = [
+            x.strip() for x in str(getattr(all_args, "script_swap_pool", "") or "").split(",") if x.strip()
+        ]
+        self.script_swap_prob = float(getattr(all_args, "script_swap_prob", 0.0) or 0.0)
         self.reset_featurize_type(
             featurize_type=featurize_type
         )  # default agents are both ppo
@@ -651,8 +667,33 @@ class Overcooked(gym.Env):
         else:
             self.script_agent = [None, None]
 
+    def set_script_agent(self, a, name):
+        """Put scripted partner `name` (a SCRIPT_AGENTS key) in seat `a`; None clears it."""
+        self._script_base[a] = name
+        self._script_current[a] = name
+        if name is None:
+            self.script_agent[a] = None
+            return
+        self.script_agent[a] = SCRIPT_AGENTS[name]()
+        self.script_agent[a].reset(self.base_env.mdp, self.base_env.state, a)
+
     def reset_featurize_type(self, featurize_type=("ppo", "ppo")):
         assert len(featurize_type) == 2
+        # "script:NAME" means a scripted partner holds that seat: it is observed
+        # through the ppo featurisation like anyone else, and its actions come
+        # from the script. This is how in-training evaluation, which pushes one
+        # featurize type per seat per eval batch, reaches scripted partners.
+        scripts = [
+            f[len("script:"):] if isinstance(f, str) and f.startswith("script:") else None
+            for f in featurize_type
+        ]
+        featurize_type = tuple("ppo" if s is not None else f for s, f in zip(scripts, featurize_type))
+        if hasattr(self, "_script_base"):
+            for a, name in enumerate(scripts):
+                if name is not None:
+                    self.set_script_agent(a, name)
+                elif self._script_base[a] is not None:
+                    self.set_script_agent(a, None)
         self.featurize_type = featurize_type
         self.featurize_fn = lambda state: [
             self.featurize_fn_mapping[f](state)[i] * (255 if f == "ppo" else 1)
@@ -741,7 +782,22 @@ class Overcooked(gym.Env):
         # team-shared sparse reward.
         self.morl_team_task = bool(getattr(all_args, "morl_team_task", False))
         self.morl_task_mask = 1.0 - self.morl_dense_mask
-        if self.morl_adaptive_weights and self.morl_adaptive_target == "complement":
+        if self.morl_adaptive_target == "neglect":
+            # Neglect weights (the fill-in suite's Step 7): per agent, each
+            # task's weight is the share of that task its partner has *not*
+            # done recently, from decaying counts of who did what. Delivery (the
+            # task objective) is never weighted -- it is the goal, paid to the
+            # team. Stored in [0, 1] (0.5 = evenly shared) for the observation,
+            # and doubled in _effective_weights so an even split pays exactly
+            # --morl_weights: the hand-shaped values when those are 20,3,3,5.
+            self.morl_neglect = True
+            self.morl_preferences = None
+            self.morl_preferences_by_agent = None
+            self.morl_neglect_decay = 0.5 ** (1.0 / float(getattr(all_args, "morl_neglect_halflife", 50.0)))
+            self._neglect_counts = np.zeros((self.num_agents, num_objectives))
+            self._last_vec_r = None
+            self.morl_weights_by_agent = np.full((self.num_agents, num_objectives), 0.5)
+        elif self.morl_adaptive_weights and self.morl_adaptive_target == "complement":
             # One update per agent. The target is recomputed every step from the
             # partner's realised mix, so the constructor's target is only the
             # reset value (uniform: nothing is known about the partner yet).
@@ -828,7 +884,9 @@ class Overcooked(gym.Env):
                        modulates a base scale rather than resetting it to 1/K
         Either way the non-task entries are then scaled by the anneal factor.
         """
-        if self.morl_weights_by_agent is not None:
+        if self.morl_neglect:
+            w = self.morl_base_weights * 2.0 * self.morl_weights_by_agent[a]
+        elif self.morl_weights_by_agent is not None:
             w = self.morl_base_weights * self.morl_num_objectives * self.morl_weights_by_agent[a]
         else:
             w = np.asarray(self.morl_weights, dtype=np.float64)
@@ -858,6 +916,18 @@ class Overcooked(gym.Env):
                 own, target=target / target.sum()
             )
 
+    def _neglect_update(self):
+        """Fold this step's task completions into the neglect weights."""
+        if self._last_vec_r is None:
+            return
+        self._neglect_counts = self._neglect_counts * self.morl_neglect_decay + self._last_vec_r
+        c = self._neglect_counts
+        for a in range(self.num_agents):
+            partner = c[[o for o in range(self.num_agents) if o != a]].sum(axis=0)
+            total = partner + c[a]
+            share = np.where(total > 1e-6, partner / np.maximum(total, 1e-12), 0.5)
+            self.morl_weights_by_agent[a] = np.where(self.morl_dense_mask > 0, 1.0 - share, 0.5)
+
     def _update_morl_weights(self):
         """Advance the preference weights by one mirror descent step.
 
@@ -866,6 +936,9 @@ class Overcooked(gym.Env):
         while nothing has happened yet, making early-episode updates no-ops
         rather than divisions by zero.
         """
+        if self.morl_neglect:
+            self._neglect_update()
+            return
         if self.morl_preferences is None and self.morl_preferences_by_agent is None:
             return
         if self.step_count % self.morl_weight_update_interval != 0:
@@ -1175,6 +1248,18 @@ class Overcooked(gym.Env):
 
         joint_action = [agent_action, other_agent_action]
 
+        # Mid-episode partner swap: a scripted seat may be handed a different
+        # script from the pool, so the agent's partner changes while it plays.
+        if self.script_swap_steps and self.step_count in self.script_swap_steps and self.script_swap_pool:
+            for a in range(self.num_agents):
+                if self._script_base[a] is not None and np.random.rand() < self.script_swap_prob:
+                    choices = [n for n in self.script_swap_pool if n != self._script_current[a]]
+                    if choices:
+                        new = choices[np.random.randint(len(choices))]
+                        self.script_agent[a] = SCRIPT_AGENTS[new]()
+                        self.script_agent[a].reset(self.base_env.mdp, self.base_env.state, a)
+                        self._script_current[a] = new
+
         for a in range(self.num_agents):
             if self.script_agent[a] is not None:
                 joint_action[a] = self.script_agent[a].step(
@@ -1267,6 +1352,8 @@ class Overcooked(gym.Env):
                 shaped_reward_p0 = morl_reward[0]
                 shaped_reward_p1 = morl_reward[1]
                 self.cumulative_morl_reward += morl_reward
+                if self.morl_neglect:
+                    self._last_vec_r = np.asarray(info["vec_r_by_agent"], dtype=np.float64)
                 self._update_morl_weights()
             else:
                 dense_reward = info["shaped_r_by_agent"]
@@ -1410,6 +1497,10 @@ class Overcooked(gym.Env):
             self.agent_idx = np.random.choice([0, 1])
 
         for a in range(self.num_agents):
+            base = self._script_base[a]
+            if base is not None and self._script_current[a] != base:
+                self.script_agent[a] = SCRIPT_AGENTS[base]()
+                self._script_current[a] = base
             if self.script_agent[a] is not None:
                 self.script_agent[a].reset(self.base_env.mdp, self.base_env.state, a)
 
@@ -1446,6 +1537,10 @@ class Overcooked(gym.Env):
                 self.morl_weights_by_agent = np.stack(
                     [p.weights for p in self.morl_preferences_by_agent]
                 )
+            if self.morl_neglect:
+                self._neglect_counts[:] = 0.0
+                self._last_vec_r = None
+                self.morl_weights_by_agent[:] = 0.5
 
         share_obs = self._gen_share_observation(self.base_env.state)
         available_actions = self._get_available_actions()
