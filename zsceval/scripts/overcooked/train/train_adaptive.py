@@ -207,8 +207,9 @@ def main(args):
         / all_args.algorithm_name
         / all_args.experiment_name
     )
-    if not run_dir.exists():
-        os.makedirs(str(run_dir))
+    # exist_ok: concurrent seeds of one experiment race to create this, and the
+    # loser used to die before wandb.init() (as train_bias_agent.py did).
+    os.makedirs(str(run_dir), exist_ok=True)
     all_args.run_dir = run_dir
     if all_args.overcooked_version == "new":
         project_name = all_args.env_name + "-new"
