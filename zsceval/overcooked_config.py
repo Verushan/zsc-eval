@@ -204,6 +204,17 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         "within an episode after a partner swap.",
     )
     parser.add_argument(
+        "--morl_neglect_prior",
+        type=float,
+        default=0.0,
+        help="--morl_adaptive_target neglect: pseudo-count added to both agents' "
+        "counts, so the partner's share is (partner + k) / (partner + own + 2k) and "
+        "relaxes to an even split as the evidence decays. At 0 (the Step 7 rule) the "
+        "share is partner / (partner + own), which never relaxes: after a swap it "
+        "stays 1 for any task the old partner did and the agent has not, so the "
+        "agent is paid nothing to take it over.",
+    )
+    parser.add_argument(
         "--script_swap_steps",
         type=str,
         default="",

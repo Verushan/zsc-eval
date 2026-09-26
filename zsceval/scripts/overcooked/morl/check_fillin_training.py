@@ -116,6 +116,26 @@ env.reset()
 assert np.allclose(env.morl_weights_by_agent, 0.5) and not env._neglect_counts.any()
 print("   reset restores even weights")
 
+# The Step 7 rule (prior 0) never relaxes: once the partner has done a task and
+# the agent has not, the agent's weight for it stays 0 however long the partner
+# has stopped. A prior pseudo-count lets it return toward an even split.
+for prior, expect_recovery in ((0.0, False), (0.5, True)):
+    env = make(["--use_morl", "--morl_objectives", "tasks", "--morl_weights", TASK_W, "--morl_team_task",
+                "--morl_adaptive_target", "neglect", "--morl_neglect_halflife", "10",
+                "--morl_neglect_prior", str(prior)])
+    env.reset()
+    for _ in range(10):  # partner fills pots, then stops for 60 steps
+        env._last_vec_r = np.array([[0, 0, 0, 0], [0, 1, 0, 0]], dtype=np.float64)
+        env._neglect_update()
+    during = env.morl_weights_by_agent[0][1]
+    for _ in range(60):
+        env._last_vec_r = np.zeros((2, 4))
+        env._neglect_update()
+    after = env.morl_weights_by_agent[0][1]
+    print(f"   prior {prior}: agent 0 fill_pot weight {during:.2f} while partner fills, {after:.2f} 60 steps after it stops")
+    assert (after > 0.4) == expect_recovery, "prior 0 must stay stuck, prior > 0 must relax"
+    assert during < 0.2
+
 # ---------------------------------------------------------------- 3. scripts via featurize type
 print("\n== 3. scripted partner from a featurize type")
 env = make(["--morl_objectives", "tasks"])

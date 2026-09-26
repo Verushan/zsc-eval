@@ -794,6 +794,7 @@ class Overcooked(gym.Env):
             self.morl_preferences = None
             self.morl_preferences_by_agent = None
             self.morl_neglect_decay = 0.5 ** (1.0 / float(getattr(all_args, "morl_neglect_halflife", 50.0)))
+            self.morl_neglect_prior = float(getattr(all_args, "morl_neglect_prior", 0.0))
             self._neglect_counts = np.zeros((self.num_agents, num_objectives))
             self._last_vec_r = None
             self.morl_weights_by_agent = np.full((self.num_agents, num_objectives), 0.5)
@@ -925,7 +926,12 @@ class Overcooked(gym.Env):
         for a in range(self.num_agents):
             partner = c[[o for o in range(self.num_agents) if o != a]].sum(axis=0)
             total = partner + c[a]
-            share = np.where(total > 1e-6, partner / np.maximum(total, 1e-12), 0.5)
+            k = self.morl_neglect_prior
+            if k > 0:
+                # Evidence fades back to an even split as the counts decay.
+                share = (partner + k) / (total + 2 * k)
+            else:
+                share = np.where(total > 1e-6, partner / np.maximum(total, 1e-12), 0.5)
             self.morl_weights_by_agent[a] = np.where(self.morl_dense_mask > 0, 1.0 - share, 0.5)
 
     def _update_morl_weights(self):
