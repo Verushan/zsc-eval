@@ -47,7 +47,10 @@ else
     exit 1
 fi
 
-yml="${POLICY_POOL}/${layout}/fcp/s2/train-${arm}.yml"
+# S2_YML overrides the population file while keeping the experiment name, so a
+# run whose seeds each train against a different partner subset (the fill-in
+# partner-removal experiment) still logs as one experiment.
+yml="${S2_YML:-${POLICY_POOL}/${layout}/fcp/s2/train-${arm}.yml}"
 if [[ ! -f "${yml}" ]]; then
     echo "missing ${yml} -- run prep/gen_arm_S2_yml.py ${layout} --arm ${arm} first"
     exit 1
