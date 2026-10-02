@@ -33,12 +33,42 @@ SCRIPTS = {
 TRAIN_PARTNERS = ["potter", "server", "idle", "dial2", "dial8"]
 
 
+def included_partners(path, agent_name):
+    """The frozen entries of another population yml, verbatim.
+
+    Entries are top-level keys followed by indented fields; the trainable one
+    (`agent_name`, or any entry with `train: True`) is left out.
+    """
+    blocks, cur = [], None
+    for line in open(path).read().splitlines():
+        if line and not line.startswith((" ", "\t")):
+            cur = [line]
+            blocks.append(cur)
+        elif cur is not None and line.strip():
+            cur.append(line)
+    out = []
+    for b in blocks:
+        name = b[0].rstrip(":")
+        if name == agent_name or any(l.strip() == "train: True" for l in b[1:]):
+            continue
+        out += b
+    assert out, f"no frozen partners in {path}"
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("layout")
     ap.add_argument("--partners", nargs="+", default=TRAIN_PARTNERS, choices=sorted(SCRIPTS))
     ap.add_argument("--name", default="scripted", help="Writes fcp/s2/train-{name}.yml")
     ap.add_argument("--agent_name", default="fcp_adaptive")
+    ap.add_argument(
+        "--include",
+        default=None,
+        help="Pool-relative population yml whose frozen partners are added before the "
+        "scripts (e.g. {layout}/fcp/s2/train-bench_sp.yml): the usual learned population "
+        "plus the specialists. Its trainable entry is dropped; this file writes its own.",
+    )
     args = ap.parse_args()
 
     assert POLICY_POOL, "POLICY_POOL is unset"
@@ -49,6 +79,8 @@ def main():
         "    featurize_type: ppo",
         "    train: True",
     ]
+    if args.include:
+        lines += included_partners(osp.join(POLICY_POOL, args.include), args.agent_name)
     for p in args.partners:
         lines += [
             f"script_{p}:",

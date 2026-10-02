@@ -96,6 +96,9 @@ def entries(
     hsp_tags=None,
     arm_config=None,
     s2_arm_config=None,
+    heldout_exp=HELDOUT_EXP,
+    heldout_seeds=None,
+    heldout_tags=None,
 ):
     """(name, policy_config, actor_path) for every policy in the pool."""
     out = []
@@ -136,14 +139,14 @@ def entries(
                 )
             )
     if heldout in ("sp", "both"):
-        for seed in HELDOUT_SEEDS:
-            for tag in HELDOUT_TAGS:
+        for seed in heldout_seeds or HELDOUT_SEEDS:
+            for tag in heldout_tags or HELDOUT_TAGS:
                 out.append(
                     (
                         f"heldout_sp{seed}_{tag}",
                         "mlp_policy_config.pkl",
                         osp.join(
-                            layout, "fcp", "s1", HELDOUT_EXP, f"sp{seed}_{tag}_actor.pt"
+                            layout, "fcp", "s1", heldout_exp, f"sp{seed}_{tag}_actor.pt"
                         ),
                     )
                 )
@@ -238,6 +241,13 @@ def main():
         "pre-existing self-play pool (random0 only); 'hsp' is ZSC-Eval's own "
         "bias agents, which exist for any layout you train them on.",
     )
+    # The self-play held-out set. Its defaults are the random0 `sp` pool; any
+    # layout can instead hold out stage-1 seeds that no population was built
+    # from, e.g. --heldout_exp bench_sp --heldout_seeds 7 8 9 10 11 12 on random1,
+    # whose HSP partners only cooperate with their own training partner.
+    parser.add_argument("--heldout_exp", default=HELDOUT_EXP, help=f"Stage-1 exp under {{layout}}/fcp/s1 (default {HELDOUT_EXP}).")
+    parser.add_argument("--heldout_seeds", nargs="+", type=int, default=None, help=f"Held-out seeds (default {HELDOUT_SEEDS}).")
+    parser.add_argument("--heldout_tags", nargs="+", default=None, help=f"Held-out checkpoint tags (default {HELDOUT_TAGS}).")
     parser.add_argument(
         "--hsp_partners",
         nargs="*",
@@ -311,6 +321,9 @@ def main():
             hsp_partners=hsp_partners,
             hsp_exp=args.hsp_exp,
             hsp_tags=args.hsp_tags,
+            heldout_exp=args.heldout_exp,
+            heldout_seeds=args.heldout_seeds,
+            heldout_tags=args.heldout_tags,
             arm_config=dict(kv.split("=", 1) for kv in args.arm_config),
             s2_arm_config=dict(kv.split("=", 1) for kv in args.s2_arm_config),
         ):
