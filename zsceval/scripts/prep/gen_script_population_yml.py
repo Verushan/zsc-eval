@@ -59,7 +59,7 @@ def included_partners(path, agent_name):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("layout")
-    ap.add_argument("--partners", nargs="+", default=TRAIN_PARTNERS, choices=sorted(SCRIPTS))
+    ap.add_argument("--partners", nargs="+", default=TRAIN_PARTNERS, choices=sorted(SCRIPTS) + ["none"])
     ap.add_argument("--name", default="scripted", help="Writes fcp/s2/train-{name}.yml")
     ap.add_argument("--agent_name", default="fcp_adaptive")
     ap.add_argument(
@@ -69,6 +69,15 @@ def main():
         "scripts (e.g. {layout}/fcp/s2/train-bench_sp.yml): the usual learned population "
         "plus the specialists. Its trainable entry is dropped; this file writes its own.",
     )
+    ap.add_argument(
+        "--family",
+        type=int,
+        default=0,
+        help="Add K members of the parametrised specialist family (family.sample: the "
+        "extremes first, then spread-out interior points). With --partners none, the "
+        "population is the family alone.",
+    )
+    ap.add_argument("--family_seed", type=int, default=0)
     ap.add_argument(
         "--repeat",
         type=int,
@@ -89,12 +98,18 @@ def main():
     ]
     if args.include:
         lines += included_partners(osp.join(POLICY_POOL, args.include), args.agent_name)
-    for p in args.partners:
+    partners = [p for p in args.partners if p != "none"]
+    keys = {p: SCRIPTS[p] for p in partners}
+    if args.family:
+        from zsceval.envs.overcooked.script_agent import family
+
+        keys.update({m: m for m in family.sample(args.family, seed=args.family_seed)})
+    for p in keys:
         for c in range(args.repeat):
             lines += [
                 f"script_{p}" + (f"_c{c + 1}" if args.repeat > 1 else "") + ":",
                 f"    policy_config_path: {cfg}/mlp_policy_config.pkl",
-                f"    featurize_type: script:{SCRIPTS[p]}",
+                f"    featurize_type: script:{keys[p]}",
                 "    train: False",
             ]
     out = osp.join(POLICY_POOL, args.layout, "fcp", "s2", f"train-{args.name}.yml")
@@ -105,9 +120,9 @@ def main():
     with open(tmp, "w") as f:
         f.write("\n".join(lines) + "\n")
     os.replace(tmp, out)
-    print(f"{args.name} {len(args.partners)} {out}")
+    print(f"{args.name} {len(keys)} {out}")
     # The swap pool is the same set of scripts, by SCRIPT_AGENTS key.
-    print("swap pool: " + ",".join(SCRIPTS[p] for p in args.partners))
+    print("swap pool: " + ",".join(keys.values()))
 
 
 if __name__ == "__main__":

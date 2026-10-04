@@ -174,3 +174,29 @@ for onion in range(10 + 1):
             soup_ratio=soup_ratio,
             noise_ratio=noise_ratio,
         )
+
+
+class _ScriptRegistry(dict):
+    """SCRIPT_AGENTS, plus parametrised family members built from their names.
+
+    `fam_o{O}_n{N}_l{L}_w{W}` keys (see family.py) are constructed on first
+    lookup, so the env, swap pools and population ymls accept them unchanged.
+    """
+
+    def __missing__(self, name):
+        from zsceval.envs.overcooked.script_agent import family
+
+        if family.parse(name) is None:
+            raise KeyError(name)
+        self[name] = family.make(name)
+        return self[name]
+
+    def __contains__(self, name):
+        if dict.__contains__(self, name):
+            return True
+        from zsceval.envs.overcooked.script_agent import family
+
+        return family.parse(name) is not None
+
+
+SCRIPT_AGENTS = _ScriptRegistry(SCRIPT_AGENTS)
