@@ -69,6 +69,14 @@ def main():
         "scripts (e.g. {layout}/fcp/s2/train-bench_sp.yml): the usual learned population "
         "plus the specialists. Its trainable entry is dropped; this file writes its own.",
     )
+    ap.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="Copies of each script entry. Partners are sampled uniformly per entry, so "
+        "with --include this sets the share of games against specialists: 18 learned "
+        "partners plus 5 scripts x 4 copies puts about half the games against scripts.",
+    )
     args = ap.parse_args()
 
     assert POLICY_POOL, "POLICY_POOL is unset"
@@ -82,12 +90,13 @@ def main():
     if args.include:
         lines += included_partners(osp.join(POLICY_POOL, args.include), args.agent_name)
     for p in args.partners:
-        lines += [
-            f"script_{p}:",
-            f"    policy_config_path: {cfg}/mlp_policy_config.pkl",
-            f"    featurize_type: script:{SCRIPTS[p]}",
-            "    train: False",
-        ]
+        for c in range(args.repeat):
+            lines += [
+                f"script_{p}" + (f"_c{c + 1}" if args.repeat > 1 else "") + ":",
+                f"    policy_config_path: {cfg}/mlp_policy_config.pkl",
+                f"    featurize_type: script:{SCRIPTS[p]}",
+                "    train: False",
+            ]
     out = osp.join(POLICY_POOL, args.layout, "fcp", "s2", f"train-{args.name}.yml")
     os.makedirs(osp.dirname(out), exist_ok=True)
     # Concurrent array tasks all write this file; a rename is atomic, so none
