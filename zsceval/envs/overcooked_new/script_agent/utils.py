@@ -5,8 +5,15 @@ import numpy as np
 from zsceval.envs.overcooked.overcooked_ai_py.mdp.actions import Action, Direction
 
 
+def soup_capacity(mdp):
+    """Ingredients a pot holds. The multi-recipe MDP names this
+    `max_num_items_for_soup`; the single-recipe one `num_items_for_soup`."""
+    return getattr(mdp, "num_items_for_soup", None) or getattr(mdp, "max_num_items_for_soup", 3)
+
+
 def compute_valid_map(mdp, state, player_idx, terrain_type, obj_lst):
     player = state.players[player_idx]
+    cap = soup_capacity(mdp)
     valid_map = np.zeros((len(mdp.terrain_mtx), len(mdp.terrain_mtx[0])), dtype=np.int32)
     for terrain in terrain_type:
         positions = list(mdp.terrain_pos_dict[terrain])
@@ -30,7 +37,7 @@ def compute_valid_map(mdp, state, player_idx, terrain_type, obj_lst):
                         obj = state.get_object(pos)
                         num_items = len(obj.ingredients)
                         is_ready = obj.is_ready
-                        if num_items == mdp.num_items_for_soup and not is_ready:
+                        if obj.is_cooking:
                             valid_map[y, x] += 1
                 elif obj == "soup":
                     if terrain == "P":
@@ -38,7 +45,7 @@ def compute_valid_map(mdp, state, player_idx, terrain_type, obj_lst):
                             obj = state.get_object(pos)
                             num_items = len(obj.ingredients)
                             is_ready = obj.is_ready
-                            if num_items == mdp.num_items_for_soup and is_ready:
+                            if is_ready:
                                 valid_map[y, x] += 1
                     elif terrain == "X":
                         valid_map[y, x] += state.has_object(pos) and state.get_object(pos).name == "soup"
@@ -49,7 +56,7 @@ def compute_valid_map(mdp, state, player_idx, terrain_type, obj_lst):
                         if state.has_object(pos) and state.get_object(pos).name == "soup":
                             obj = state.get_object(pos)
                             num_items = len(obj.ingredients)
-                            if num_items < mdp.num_items_for_soup:
+                            if num_items < cap:
                                 valid_map[y, x] += 1
                 elif obj == "unfull_soup_t":
                     if terrain == "P":
@@ -57,7 +64,7 @@ def compute_valid_map(mdp, state, player_idx, terrain_type, obj_lst):
                             ingredients = state.get_object(pos).ingredients
                             num_t = sum([int(i == "tomato") for i in ingredients])
                             num_o = sum([int(i == "onion") for i in ingredients])
-                            if num_t > 0 and num_o == 0 and len(ingredients) < mdp.num_items_for_soup:
+                            if num_t > 0 and num_o == 0 and len(ingredients) < cap:
                                 valid_map[y, x] += 1
                 elif obj == "unfull_soup_o":
                     if terrain == "P":
@@ -65,7 +72,7 @@ def compute_valid_map(mdp, state, player_idx, terrain_type, obj_lst):
                             ingredients = state.get_object(pos).ingredients
                             num_t = sum([int(i == "tomato") for i in ingredients])
                             num_o = sum([int(i == "onion") for i in ingredients])
-                            if num_t == 0 and num_o > 0 and len(ingredients) < mdp.num_items_for_soup:
+                            if num_t == 0 and num_o > 0 and len(ingredients) < cap:
                                 valid_map[y, x] += 1
                 elif obj == "unfull_soup_ot":
                     if terrain == "P":
@@ -73,7 +80,7 @@ def compute_valid_map(mdp, state, player_idx, terrain_type, obj_lst):
                             ingredients = state.get_object(pos).ingredients
                             num_t = sum([int(i == "tomato") for i in ingredients])
                             num_o = sum([int(i == "onion") for i in ingredients])
-                            if num_t > 0 and num_o > 0 and len(ingredients) < mdp.num_items_for_soup:
+                            if num_t > 0 and num_o > 0 and len(ingredients) < cap:
                                 valid_map[y, x] += 1
                 elif obj == "unfull_soup_1t":
                     if terrain == "P":
@@ -81,7 +88,7 @@ def compute_valid_map(mdp, state, player_idx, terrain_type, obj_lst):
                             ingredients = state.get_object(pos).ingredients
                             num_t = sum([int(i == "tomato") for i in ingredients])
                             num_o = sum([int(i == "onion") for i in ingredients])
-                            if num_t == 1 and num_o == 0 and len(ingredients) < mdp.num_items_for_soup:
+                            if num_t == 1 and num_o == 0 and len(ingredients) < cap:
                                 valid_map[y, x] += 1
                 elif obj == "unfull_soup_1o":
                     if terrain == "P":
@@ -89,7 +96,7 @@ def compute_valid_map(mdp, state, player_idx, terrain_type, obj_lst):
                             ingredients = state.get_object(pos).ingredients
                             num_t = sum([int(i == "tomato") for i in ingredients])
                             num_o = sum([int(i == "onion") for i in ingredients])
-                            if num_t == 0 and num_o == 1 and len(ingredients) < mdp.num_items_for_soup:
+                            if num_t == 0 and num_o == 1 and len(ingredients) < cap:
                                 valid_map[y, x] += 1
                 elif obj == "can_put":
                     if terrain == "X":
@@ -105,7 +112,7 @@ def compute_valid_map(mdp, state, player_idx, terrain_type, obj_lst):
                                 obj = state.get_object(pos)
                                 assert obj.name == "soup"
                                 num_items = len(obj.ingredients)
-                                valid_map[y, x] += num_items < mdp.num_items_for_soup
+                                valid_map[y, x] += num_items < cap
                     elif terrain == "S":
                         if player.has_object() and player.get_object().name == "soup":
                             valid_map[y, x] += 1

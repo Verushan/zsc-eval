@@ -41,6 +41,21 @@ class RandomScriptAgent(BaseScriptAgent):
 
     def step(self, mdp, state, player_idx):
         # print(f"step {player_idx}\n", mdp.state_string(state))
+        # The multi-recipe dynamics only start a pot with an empty-handed
+        # INTERACT. No period does that, so pots filled and never cooked. Start
+        # any full, idle pot this cook is empty-handed and facing.
+        if not getattr(mdp, "old_dynamics", True):
+            player = state.players[player_idx]
+            facing = tuple(p + o for p, o in zip(player.position, player.orientation))
+            if (
+                not player.has_object()
+                and facing in mdp.get_pot_locations()
+                and state.has_object(facing)
+                and state.get_object(facing).name == "soup"
+                and state.get_object(facing).is_idle
+                and len(state.get_object(facing).ingredients) >= utils.soup_capacity(mdp)
+            ):
+                return Action.INTERACT
         while self._current_period.done(mdp, state, player_idx):
             self._current_period_name, self._current_period = self.make_new_period()
             self._current_period.reset(mdp, state, player_idx)
