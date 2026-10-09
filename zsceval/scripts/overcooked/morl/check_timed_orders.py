@@ -13,6 +13,7 @@ rest exercise each rule of experiments/report/timed-orders-env-spec.md:
     obs        4 planes per queue slot + 1, integer-valued, most urgent first
     wrapper    the gym env builds from flags, obs space matches obs, episode stats add up
     objectives the order objectives (preset `orders`) agree with the env's accounting
+    scripts    a scripted partner holds a seat in training, swaps mid-game, is restored on reset
 
     python zsceval/scripts/overcooked/morl/check_timed_orders.py
     python zsceval/scripts/overcooked/morl/check_timed_orders.py --only pay match
@@ -289,6 +290,44 @@ def check_objectives():
     assert value * min_pay - n <= ep["ep_order_pay"] <= value + n, (ep["ep_order_pay"], value)
 
 
+def check_scripts():
+    """A scripted partner holds a seat during training, is swapped mid-game, and comes back on reset."""
+    from zsceval.config import get_config
+    from zsceval.envs.overcooked_new.Overcooked_Env import Overcooked
+    from zsceval.overcooked_config import get_overcooked_args
+
+    parser = get_overcooked_args(get_config())
+    parser.add_argument("--use_phi", default=False, action="store_true")
+    pool = "ofam_us_l0_w0,ofam_up_l0_w0"
+    args = parser.parse_args(
+        ["--env_name", "Overcooked", "--algorithm_name", "adaptive", "--experiment_name", "timed_check",
+         "--layout_name", LAYOUT, "--num_agents", "2", "--episode_length", "400", "--overcooked_version", "new",
+         "--timed_orders", "--script_swap_steps", "200", "--script_swap_pool", pool, "--script_swap_prob", "1.0"]
+    )  # fmt: skip
+    args.old_dynamics = False
+    env = Overcooked(args, run_dir=os.environ.get("TMPDIR", "/tmp"))
+    env.reset_featurize_type(("ppo", "script:ofam_us_l0_w0"))
+    assert env.featurize_type == ("ppo", "ppo") and env._script_base[1] == "ofam_us_l0_w0"
+    env.reset()
+    rng = np.random.default_rng(0)
+    seen, info = set(), None
+    for _ in range(400):
+        _obs, _share, _r, done, info, _avail = env.step(rng.integers(0, 6, size=(2, 1)))
+        seen.add(env._script_current[1])
+        if done[0]:
+            break
+    assert seen == {"ofam_us_l0_w0", "ofam_up_l0_w0"}, seen  # swapped at step 200 (prob 1)
+    # Beside a random agent nothing gets cooked, so the server idles until the swap;
+    # the potter it becomes at step 200 starts filling pots straight away.
+    stats = info["episode"]["ep_game_stats"]
+    potted = stats["potting_onion"][1] + stats["potting_tomato"][1]
+    assert potted and min(potted) >= 200, potted
+    env.reset()
+    assert env._script_current[1] == "ofam_us_l0_w0"
+    env.reset_featurize_type(("ppo", "ppo"))
+    assert env.script_agent[1] is None
+
+
 CHECKS = {
     "off": check_off,
     "lifecycle": check_lifecycle,
@@ -299,6 +338,7 @@ CHECKS = {
     "obs": check_obs,
     "wrapper": check_wrapper,
     "objectives": check_objectives,
+    "scripts": check_scripts,
 }
 
 

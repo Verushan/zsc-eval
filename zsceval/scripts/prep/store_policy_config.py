@@ -161,6 +161,14 @@ def main():
         "agent given the partner state as an ablation.",
     )
     parser.add_argument(
+        "--timed_orders",
+        action="store_true",
+        help="Write configs for the timed-order env (multi-recipe layouts only), as "
+        "`{mlp,rnn}_policy_config_timed.pkl`: --timed_orders adds 4 planes per queue "
+        "slot + 1 to the observation, so its agents cannot load the shared config. "
+        "Built with the default order parameters; the width depends only on the queue size.",
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Replace a config that already exists. Off by default: every policy "
@@ -186,6 +194,8 @@ def main():
             name.replace(".pkl", f"{suffix}.pkl"): base + extra
             for name, base in CONFIGS.items()
         }
+    elif args.timed_orders:
+        configs = {name.replace(".pkl", "_timed.pkl"): base + ["--timed_orders"] for name, base in CONFIGS.items()}
     elif args.pid_obs_dim is not None:
         extra = pid_flags(args.pid_obs_dim)
         configs = {

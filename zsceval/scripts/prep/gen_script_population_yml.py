@@ -79,6 +79,20 @@ def main():
     )
     ap.add_argument("--family_seed", type=int, default=0)
     ap.add_argument(
+        "--order_family",
+        type=int,
+        default=0,
+        help="Add K members of the order-aware family for the timed-order env "
+        "(envs/overcooked_new/script_agent/order_family.py). Multi-recipe layouts only; "
+        "use with --partners none and --config_suffix _timed.",
+    )
+    ap.add_argument(
+        "--config_suffix",
+        default="",
+        help="Appended to every policy config name, e.g. _timed for "
+        "{rnn,mlp}_policy_config_timed.pkl (prep/store_policy_config.py --timed_orders).",
+    )
+    ap.add_argument(
         "--repeat",
         type=int,
         default=1,
@@ -92,7 +106,7 @@ def main():
     cfg = f"{args.layout}/policy_config"
     lines = [
         f"{args.agent_name}:",
-        f"    policy_config_path: {cfg}/rnn_policy_config.pkl",
+        f"    policy_config_path: {cfg}/rnn_policy_config{args.config_suffix}.pkl",
         "    featurize_type: ppo",
         "    train: True",
     ]
@@ -104,11 +118,15 @@ def main():
         from zsceval.envs.overcooked.script_agent import family
 
         keys.update({m: m for m in family.sample(args.family, seed=args.family_seed)})
+    if args.order_family:
+        from zsceval.envs.overcooked_new.script_agent import order_family
+
+        keys.update({m: m for m in order_family.sample(args.order_family, seed=args.family_seed)})
     for p in keys:
         for c in range(args.repeat):
             lines += [
                 f"script_{p}" + (f"_c{c + 1}" if args.repeat > 1 else "") + ":",
-                f"    policy_config_path: {cfg}/mlp_policy_config.pkl",
+                f"    policy_config_path: {cfg}/mlp_policy_config{args.config_suffix}.pkl",
                 f"    featurize_type: script:{keys[p]}",
                 "    train: False",
             ]

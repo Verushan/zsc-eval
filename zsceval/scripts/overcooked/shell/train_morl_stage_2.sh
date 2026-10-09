@@ -43,8 +43,10 @@ fi
 if [[ "${layout}" == "random0" || "${layout}" == "random0_medium" || "${layout}" == "random1" || "${layout}" == "random3" || "${layout}" == "small_corridor" || "${layout}" == "unident_s" ]]; then
     version="old"
 else
-    echo "The benchmark arms only exist on the old-env layouts, got '${layout}'"
-    exit 1
+    # Multi-recipe layouts: scripted seats, swaps and timed orders work there too
+    # (pass --timed_orders through EGO_FLAGS and point S2_YML at a population
+    # built with --config_suffix _timed).
+    version="new"
 fi
 
 # S2_YML overrides the population file while keeping the experiment name, so a

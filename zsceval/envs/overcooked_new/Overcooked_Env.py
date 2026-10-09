@@ -902,6 +902,22 @@ class Overcooked(gym.Env):
             "ppo": self.featurize_fn_ppo,
             "bc": self.featurize_fn_bc,
         }
+        # A seat can hold a scripted partner, installed by the stage-2 trainer
+        # (PartialPolicyEnv.load_policy -> set_script_agent) or by an eval
+        # featurize type "script:NAME" -- ported from the old env so specialist
+        # training works in the multi-recipe (and timed-order) kitchens.
+        # `_script_base` is the partner the seat was given; `_script_current`
+        # differs from it only after a mid-episode swap, and reset() restores it.
+        self.script_agent = [None, None]
+        self._script_base = [None, None]
+        self._script_current = [None, None]
+        self.script_swap_steps = {
+            int(x) for x in str(getattr(all_args, "script_swap_steps", "") or "").split(",") if x.strip()
+        }
+        self.script_swap_pool = [
+            x.strip() for x in str(getattr(all_args, "script_swap_pool", "") or "").split(",") if x.strip()
+        ]
+        self.script_swap_prob = float(getattr(all_args, "script_swap_prob", 0.0) or 0.0)
         self.reset_featurize_type(featurize_type=featurize_type)  # default agents are both ppo
 
         if self.all_args.algorithm_name == "population":
@@ -911,11 +927,31 @@ class Overcooked(gym.Env):
                 if policy_name.startswith("script:"):
                     self.script_agent[player_idx] = SCRIPT_AGENTS[policy_name[7:]]()
                     self.script_agent[player_idx].reset(self.base_env.mdp, self.base_env.state, player_idx)
-        else:
-            self.script_agent = [None, None]
+
+    def set_script_agent(self, a, name):
+        """Put scripted partner `name` (a SCRIPT_AGENTS key) in seat `a`; None clears it."""
+        self._script_base[a] = name
+        self._script_current[a] = name
+        if name is None:
+            self.script_agent[a] = None
+            return
+        self.script_agent[a] = SCRIPT_AGENTS[name]()
+        self.script_agent[a].reset(self.base_env.mdp, self.base_env.state, a)
 
     def reset_featurize_type(self, featurize_type=("ppo", "ppo")):
         assert len(featurize_type) == 2
+        # "script:NAME" means a scripted partner holds that seat: observed through
+        # the ppo featurisation like anyone else, actions from the script.
+        scripts = [
+            f[len("script:"):] if isinstance(f, str) and f.startswith("script:") else None for f in featurize_type
+        ]
+        featurize_type = tuple("ppo" if sc is not None else f for sc, f in zip(scripts, featurize_type))
+        if hasattr(self, "_script_base"):
+            for a, name in enumerate(scripts):
+                if name is not None:
+                    self.set_script_agent(a, name)
+                elif self._script_base[a] is not None:
+                    self.set_script_agent(a, None)
         self.featurize_type = featurize_type
         self.featurize_fn = lambda state: [
             self.featurize_fn_mapping[f](state)[i] * (255 if f == "ppo" else 1)
@@ -1175,6 +1211,18 @@ class Overcooked(gym.Env):
 
         joint_action = [agent_action, other_agent_action]
 
+        # Mid-episode partner swap: a scripted seat may be handed a different
+        # script from the pool, so the agent's partner changes while it plays.
+        if self.script_swap_steps and self.step_count in self.script_swap_steps and self.script_swap_pool:
+            for a in range(self.num_agents):
+                if self._script_base[a] is not None and np.random.rand() < self.script_swap_prob:
+                    choices = [n for n in self.script_swap_pool if n != self._script_current[a]]
+                    if choices:
+                        new = choices[np.random.randint(len(choices))]
+                        self.script_agent[a] = SCRIPT_AGENTS[new]()
+                        self.script_agent[a].reset(self.base_env.mdp, self.base_env.state, a)
+                        self._script_current[a] = new
+
         for a in range(self.num_agents):
             if self.script_agent[a] is not None:
                 joint_action[a] = self.script_agent[a].step(self.base_env.mdp, self.base_env.state, a)
@@ -1338,6 +1386,10 @@ class Overcooked(gym.Env):
             self.agent_idx = np.random.choice([0, 1])
 
         for a in range(self.num_agents):
+            base = self._script_base[a]
+            if base is not None and self._script_current[a] != base:
+                self.script_agent[a] = SCRIPT_AGENTS[base]()
+                self._script_current[a] = base
             if self.script_agent[a] is not None:
                 self.script_agent[a].reset(self.base_env.mdp, self.base_env.state, a)
 
