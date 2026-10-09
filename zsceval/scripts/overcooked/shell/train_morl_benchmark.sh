@@ -71,6 +71,10 @@ team_flag=()
 # under `anchored` would otherwise be silently mixed with the `default` runs it
 # exists to supersede.
 exp_suffix=${EXP_SUFFIX:-}
+# EXTRA_FLAGS is appended to every arm's command line, e.g. the timed-order env:
+#   EXTRA_FLAGS="--timed_orders" EXP_SUFFIX=-timed bash shell/train_morl_benchmark.sh unident_s_m bench_sp
+# Give it an EXP_SUFFIX too, for the same reason as above.
+read -r -a extra_flags <<< "${EXTRA_FLAGS:-}"
 case "${arm}" in
     bench_sp)
         morl_flags=(--morl_objectives ${objectives})
@@ -216,7 +220,7 @@ do
     --num_mini_batch ${num_mini_batch} --episode_length ${episode_length} \
     --num_env_steps ${num_env_steps} --reward_shaping_horizon ${reward_shaping_horizon} \
     --overcooked_version ${version} \
-    "${morl_flags[@]}" \
+    "${morl_flags[@]}" "${extra_flags[@]}" \
     --ppo_epoch ${ppo_epoch} --entropy_coefs ${entropy_coefs} --entropy_coef_horizons ${entropy_coef_horizons} \
     --cnn_layers_params "32,3,1,1 64,3,1,1 32,3,1,1" --use_recurrent_policy \
     --use_proper_time_limits \
