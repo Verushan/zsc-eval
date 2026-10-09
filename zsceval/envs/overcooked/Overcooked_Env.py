@@ -538,6 +538,8 @@ class Overcooked(gym.Env):
         self.traj_num = 0
         self.step_count = 0
         self.run_dir = run_dir
+        if getattr(all_args, "timed_orders", False):
+            raise NotImplementedError("--timed_orders needs the multi-recipe env (--overcooked_version new, *_m layouts)")
         self.use_morl = getattr(all_args, "use_morl", False)
         # Set before the observation spaces are built further down, since it
         # changes their width.

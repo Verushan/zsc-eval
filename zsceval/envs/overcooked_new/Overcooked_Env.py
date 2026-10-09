@@ -335,6 +335,15 @@ class OvercookedEnv:
             rewards_dict["cumulative_objective_rewards_by_agent"] = np.zeros(
                 (self.mdp.num_players, len(self.objectives))
             )
+        if getattr(self.mdp, "timed_orders", None) is not None:
+            rewards_dict.update(
+                {
+                    "cumulative_orders_delivered_by_agent": np.zeros(self.mdp.num_players, dtype=int),
+                    "cumulative_order_pay_by_agent": np.zeros(self.mdp.num_players, dtype=int),
+                    "cumulative_unmatched_by_agent": np.zeros(self.mdp.num_players, dtype=int),
+                    "cumulative_orders_expired": 0,
+                }
+            )
 
         self.game_stats = {**events_dict, **rewards_dict}
         return self.state
@@ -369,6 +378,8 @@ class OvercookedEnv:
         env_info["shaped_info_by_agent"] = mdp_infos["shaped_info_by_agent"]
         env_info["phi_s"] = mdp_infos["phi_s"] if "phi_s" in mdp_infos else None
         env_info["phi_s_prime"] = mdp_infos["phi_s_prime"] if "phi_s_prime" in mdp_infos else None
+        if "order_info" in mdp_infos:
+            env_info["order_info"] = mdp_infos["order_info"]
         return env_info
 
     def _add_episode_info(self, env_info):
@@ -384,6 +395,20 @@ class OvercookedEnv:
         if self.objectives is not None:
             env_info["episode"]["ep_vec_r_by_agent"] = self.game_stats["cumulative_objective_rewards_by_agent"]
             env_info["episode"]["ep_objective_names"] = self.objectives.names
+        if "cumulative_orders_expired" in self.game_stats:
+            delivered = self.game_stats["cumulative_orders_delivered_by_agent"]
+            expired = self.game_stats["cumulative_orders_expired"]
+            env_info["episode"].update(
+                {
+                    "ep_orders_delivered": int(delivered.sum()),
+                    "ep_orders_delivered_by_agent": delivered.copy(),
+                    "ep_orders_expired": int(expired),
+                    "ep_order_pay": int(self.game_stats["cumulative_order_pay_by_agent"].sum()),
+                    "ep_unmatched_soups": int(self.game_stats["cumulative_unmatched_by_agent"].sum()),
+                    # Of the orders that closed (served or expired), the share served in time.
+                    "ep_on_time_rate": float(delivered.sum() / max(delivered.sum() + expired, 1)),
+                }
+            )
         return env_info
 
     def _update_objectives(self, next_state, joint_action, mdp_infos):
@@ -433,6 +458,12 @@ class OvercookedEnv:
         self.game_stats["cumulative_category_rewards_by_agent"] += self.vectorize_shaped_info(
             infos["shaped_info_by_agent"]
         )
+        if "order_info" in infos:
+            oi = infos["order_info"]
+            self.game_stats["cumulative_orders_delivered_by_agent"] += np.array(oi["delivered_by_agent"])
+            self.game_stats["cumulative_order_pay_by_agent"] += np.array(oi["pay_by_agent"])
+            self.game_stats["cumulative_unmatched_by_agent"] += np.array(oi["unmatched_by_agent"])
+            self.game_stats["cumulative_orders_expired"] += oi["expired"]
 
         for event_type, bool_list_by_agent in infos["event_infos"].items():
             # For each event type, store the timestep if it occurred
@@ -791,6 +822,14 @@ class Overcooked(gym.Env):
                 "old_dynamics": self.old_dynamics,
             }
         )
+        if getattr(all_args, "timed_orders", False):
+            mdp_params["timed_orders"] = {
+                "queue": all_args.order_queue,
+                "arrival": all_args.order_arrival,
+                "deadline": all_args.order_deadline,
+                "penalty": all_args.order_penalty,
+                "min_pay": all_args.order_min_pay,
+            }
         env_params = {
             "horizon": all_args.episode_length,
             "evaluation": evaluation,

@@ -673,10 +673,56 @@ class PlayerState:
         return PlayerState(**player_dict)
 
 
+class Order:
+    """One open ticket in the timed-order queue: a recipe due by `deadline`.
+
+    Only exists when the MDP is built with `timed_orders`; every other layout
+    keeps the static, never-expiring `all_orders` list.
+    """
+
+    __slots__ = ("recipe", "arrival", "deadline")
+
+    def __init__(self, recipe, arrival, deadline):
+        self.recipe = recipe
+        self.arrival = arrival
+        self.deadline = deadline
+
+    def _key(self):
+        return (self.recipe, self.arrival, self.deadline)
+
+    def __eq__(self, other):
+        return isinstance(other, Order) and self._key() == other._key()
+
+    def __hash__(self):
+        return hash(self._key())
+
+    def __repr__(self):
+        return f"Order({self.recipe}, arrival={self.arrival}, deadline={self.deadline})"
+
+    def to_dict(self):
+        return {"recipe": self.recipe.to_dict(), "arrival": self.arrival, "deadline": self.deadline}
+
+    @classmethod
+    def from_dict(cls, obj):
+        if isinstance(obj, Order):
+            return cls(obj.recipe, obj.arrival, obj.deadline)
+        return cls(Recipe.from_dict(obj["recipe"]), obj["arrival"], obj["deadline"])
+
+
 class OvercookedState:
     """A state in OvercookedGridworld."""
 
-    def __init__(self, players, objects, bonus_orders=[], all_orders=[], timestep=0, **kwargs):
+    def __init__(
+        self,
+        players,
+        objects,
+        bonus_orders=[],
+        all_orders=[],
+        timestep=0,
+        orders=None,
+        next_order_t=None,
+        **kwargs,
+    ):
         """
         players (list(PlayerState)): Currently active PlayerStates (index corresponds to number)
         objects (dict({tuple:list(ObjectState)})):  Dictionary mapping positions (x, y) to ObjectStates.
@@ -685,6 +731,10 @@ class OvercookedState:
         bonus_orders (list(dict)):   Current orders worth a bonus
         all_orders (list(dict)):     Current orders allowed at all
         timestep (int):  The current timestep of the state
+        orders (list(dict) | None):  Open timed orders, most urgent first. None
+            when the MDP has no timed orders, which keeps every other layout's
+            state, hash and serialisation exactly as before.
+        next_order_t (int | None):   Earliest timestep the next order may arrive
 
         """
         bonus_orders = [Recipe.from_dict(order) for order in bonus_orders]
@@ -696,6 +746,8 @@ class OvercookedState:
         self._bonus_orders = bonus_orders
         self._all_orders = all_orders
         self.timestep = timestep
+        self.orders = None if orders is None else [Order.from_dict(o) for o in orders]
+        self.next_order_t = next_order_t
 
         assert len(set(self.bonus_orders)) == len(self.bonus_orders), "Bonus orders must not have duplicates"
         assert len(set(self.all_orders)) == len(self.all_orders), "All orders must not have duplicates"
@@ -824,6 +876,8 @@ class OvercookedState:
             bonus_orders=[order.to_dict() for order in self.bonus_orders],
             all_orders=[order.to_dict() for order in self.all_orders],
             timestep=self.timestep,
+            orders=None if self.orders is None else list(self.orders),
+            next_order_t=self.next_order_t,
         )
 
     def time_independent_equal(self, other):
@@ -834,6 +888,7 @@ class OvercookedState:
             and self.players == other.players
             and set(self.objects.items()) == set(other.objects.items())
             and order_lists_equal
+            and self.orders == other.orders
         )
 
     def __eq__(self, other):
@@ -841,6 +896,8 @@ class OvercookedState:
 
     def __hash__(self):
         order_list_hash = hash(tuple(self.bonus_orders)) + hash(tuple(self.all_orders))
+        if self.orders is not None:
+            order_list_hash += hash(tuple(self.orders))
         return hash((self.players, tuple(self.objects.values()), order_list_hash))
 
     def __str__(self):
@@ -853,13 +910,17 @@ class OvercookedState:
         )
 
     def to_dict(self):
-        return {
+        d = {
             "players": [p.to_dict() for p in self.players],
             "objects": [obj.to_dict() for obj in self.objects.values()],
             "bonus_orders": [order.to_dict() for order in self.bonus_orders],
             "all_orders": [order.to_dict() for order in self.all_orders],
             "timestep": self.timestep,
         }
+        if self.orders is not None:
+            d["orders"] = [o.to_dict() for o in self.orders]
+            d["next_order_t"] = self.next_order_t
+        return d
 
     @staticmethod
     def from_dict(state_dict):
@@ -912,6 +973,38 @@ EVENT_TYPES = [
     "useless_tomato_potting",
 ]
 
+# Timed orders (experiments/report/timed-orders-env-spec.md). `queue` open
+# tickets at most; a new one every `arrival` steps (+-`jitter` of it) while there
+# is room; each due `deadline` steps after it arrives; an expired ticket costs
+# the team `penalty`, split evenly; a matched delivery pays
+# value * (min_pay + (1 - min_pay) * time_left / deadline), rounded.
+TIMED_ORDER_DEFAULTS = {
+    "queue": 3,
+    "arrival": 60,
+    "jitter": 0.25,
+    "deadline": 150,
+    "penalty": 10,
+    "min_pay": 0.5,
+    # Steps-left planes are bucketed into tenths: the PPO featurisation casts
+    # every plane to int, so a raw fraction would round to 0.
+    "time_buckets": 10,
+}
+
+
+def resolve_timed_orders(timed_orders):
+    """None/False -> None; True -> the defaults; a dict -> the defaults updated with it."""
+    if not timed_orders:
+        return None
+    params = dict(TIMED_ORDER_DEFAULTS)
+    if isinstance(timed_orders, dict):
+        unknown = set(timed_orders) - set(params)
+        assert not unknown, f"unknown timed_orders keys {sorted(unknown)}"
+        params.update(timed_orders)
+    assert params["queue"] >= 1 and params["arrival"] >= 1 and params["deadline"] >= 1
+    assert 0 <= params["jitter"] < 1 and 0 <= params["min_pay"] <= 1
+    return params
+
+
 POTENTIAL_CONSTANTS = {
     "default": {
         "max_delivery_steps": 10,
@@ -950,6 +1043,7 @@ class OvercookedGridworld:
         order_bonus=2,
         start_state=None,
         old_dynamics=False,
+        timed_orders=None,
         **kwargs,
     ):
         """
@@ -987,6 +1081,13 @@ class OvercookedGridworld:
         self._prev_potential_params = {}
         # determines whether to start cooking automatically once 3 items are in the pot
         self.old_dynamics = old_dynamics
+        # Opt-in order queue with deadlines; None keeps the static all_orders game.
+        self.timed_orders = resolve_timed_orders(timed_orders)
+        if self.timed_orders is not None:
+            assert not old_dynamics, "timed orders need the new dynamics (cooking starts on INTERACT)"
+            assert self.num_players == 2 and self.timed_orders["penalty"] % self.num_players == 0, (
+                "the expiry penalty is split evenly and rewards are integers: make it divisible by the team size"
+            )
 
     @staticmethod
     def from_layout_name(layout_name, **params_to_overwrite):
@@ -1080,11 +1181,12 @@ class OvercookedGridworld:
             rew_shaping_params=copy.deepcopy(self.reward_shaping_params),
             layout_name=self.layout_name,
             start_all_orders=self.start_all_orders,
+            timed_orders=copy.deepcopy(self.timed_orders),
         )
 
     @property
     def mdp_params(self):
-        return {
+        params = {
             "layout_name": self.layout_name,
             "terrain": self.terrain_mtx,
             "start_player_positions": self.start_player_positions,
@@ -1092,6 +1194,9 @@ class OvercookedGridworld:
             "rew_shaping_params": copy.deepcopy(self.reward_shaping_params),
             "start_all_orders": self.start_all_orders,
         }
+        if self.timed_orders is not None:
+            params["timed_orders"] = copy.deepcopy(self.timed_orders)
+        return params
 
     ##############
     # GAME LOGIC #
@@ -1122,7 +1227,68 @@ class OvercookedGridworld:
             bonus_orders=self.start_bonus_orders,
             all_orders=self.start_all_orders,
         )
+        self._init_orders(start_state)
         return start_state
+
+    ################
+    # TIMED ORDERS #
+    ################
+
+    def _order_interval(self):
+        p = self.timed_orders
+        lo, hi = p["arrival"] * (1 - p["jitter"]), p["arrival"] * (1 + p["jitter"])
+        return max(1, int(round(np.random.uniform(lo, hi))))
+
+    def _spawn_order(self, state):
+        recipes = state.all_orders
+        recipe = recipes[np.random.randint(len(recipes))]
+        state.orders.append(Order(recipe, state.timestep, state.timestep + self.timed_orders["deadline"]))
+        state.orders.sort(key=lambda o: (o.deadline, o.arrival))
+
+    def _init_orders(self, state):
+        """Open the queue with one order; the next arrives an interval later."""
+        if self.timed_orders is None:
+            return
+        state.orders = []
+        self._spawn_order(state)
+        state.next_order_t = state.timestep + self._order_interval()
+
+    def _step_orders(self, state):
+        """Expire overdue orders, then let the next one arrive if it is due and there is room.
+
+        Runs after the clock ticks, so an order with deadline d can be served up
+        to and including the step taken at timestep d - 1. Returns the number expired.
+        """
+        p = self.timed_orders
+        live = [o for o in state.orders if state.timestep < o.deadline]
+        expired = len(state.orders) - len(live)
+        state.orders = live
+        # A full queue holds the arrival back rather than dropping it, so a
+        # team that serves quickly is offered more work.
+        if state.timestep >= state.next_order_t and len(state.orders) < p["queue"]:
+            self._spawn_order(state)
+            state.next_order_t = state.timestep + self._order_interval()
+        return expired
+
+    def order_pay(self, recipe, time_left):
+        p = self.timed_orders
+        frac = min(max(time_left / p["deadline"], 0.0), 1.0)
+        return int(round(recipe.value * (p["min_pay"] + (1 - p["min_pay"]) * frac)))
+
+    def deliver_soup_timed(self, state, player, soup):
+        """Fill the most urgent open order for this recipe. Returns (pay, matched).
+
+        A soup no open order wants pays 0; a recipe outside the layout's menu
+        keeps the usual -10.
+        """
+        assert soup.name == "soup" and soup.is_ready
+        player.remove_object()
+        matches = [o for o in state.orders if o.recipe == soup.recipe]
+        if not matches:
+            return (0 if soup.recipe in state.all_orders else -10), False
+        order = min(matches, key=lambda o: (o.deadline, o.arrival))
+        state.orders.remove(order)
+        return self.order_pay(soup.recipe, order.deadline - state.timestep), True
 
     def get_random_start_state(self, random_player_pos=False):
         state = self.get_standard_start_state()
@@ -1197,6 +1363,7 @@ class OvercookedGridworld:
                 bonus_orders=self.start_bonus_orders,
                 all_orders=self.start_all_orders,
             )
+            self._init_orders(start_state)
 
             if rnd_obj_prob_thresh == 0:
                 return start_state
@@ -1260,13 +1427,21 @@ class OvercookedGridworld:
                 raise ValueError(f"Illegal action {action} in state {state}")
 
         new_state = state.deepcopy()
+        order_info = None
+        if self.timed_orders is not None and state.orders is not None:
+            order_info = {
+                "delivered_by_agent": [0] * self.num_players,
+                "pay_by_agent": [0] * self.num_players,
+                "unmatched_by_agent": [0] * self.num_players,
+                "expired": 0,
+            }
 
         # Resolve interacts first
         (
             sparse_reward_by_agent,
             shaped_reward_by_agent,
             shaped_info_by_agent,
-        ) = self.resolve_interacts(new_state, joint_action, events_infos)
+        ) = self.resolve_interacts(new_state, joint_action, events_infos, order_info)
 
         assert new_state.player_positions == state.player_positions
         assert new_state.player_orientations == state.player_orientations
@@ -1276,6 +1451,13 @@ class OvercookedGridworld:
 
         # Finally, environment effects
         self.step_environment_effects(new_state)
+        if order_info is not None and new_state.orders is not None:
+            # An expired order is a team failure: the penalty is split evenly.
+            expired = self._step_orders(new_state)
+            order_info["expired"] = expired
+            share = expired * self.timed_orders["penalty"] // self.num_players
+            sparse_reward_by_agent = [r - share for r in sparse_reward_by_agent]
+            order_info["open"] = len(new_state.orders)
 
         # Additional dense reward logic
         # shaped_reward += self.calculate_distance_based_shaped_reward(state, new_state)
@@ -1285,13 +1467,15 @@ class OvercookedGridworld:
             "shaped_reward_by_agent": shaped_reward_by_agent,
             "shaped_info_by_agent": shaped_info_by_agent,
         }
+        if order_info is not None:
+            infos["order_info"] = order_info
         if display_phi:
             assert motion_planner is not None, "motion planner must be defined if display_phi is true"
             infos["phi_s"] = self.potential_function(state, motion_planner)
             infos["phi_s_prime"] = self.potential_function(new_state, motion_planner)
         return new_state, infos
 
-    def resolve_interacts(self, new_state, joint_action, events_infos):
+    def resolve_interacts(self, new_state, joint_action, events_infos, order_info=None):
         """
         Resolve any INTERACT actions, if present.
 
@@ -1426,7 +1610,14 @@ class OvercookedGridworld:
             elif terrain_type == "S" and player.has_object():
                 obj = player.get_object()
                 if obj.name == "soup":
-                    delivery_rew = self.deliver_soup(new_state, player, obj)
+                    # Planner-built states carry no queue (orders is None): price those statically.
+                    if self.timed_orders is not None and new_state.orders is not None:
+                        delivery_rew, matched = self.deliver_soup_timed(new_state, player, obj)
+                        if order_info is not None:
+                            order_info["delivered_by_agent" if matched else "unmatched_by_agent"][player_idx] += 1
+                            order_info["pay_by_agent"][player_idx] += delivery_rew if matched else 0
+                    else:
+                        delivery_rew = self.deliver_soup(new_state, player, obj)
                     sparse_reward[player_idx] += delivery_rew
                     shaped_info[player_idx]["delivery"] += 1
                     _map = {
@@ -2122,7 +2313,36 @@ class OvercookedGridworld:
         return np.array(list(self.shape) + [26])
 
     def get_lossless_state_encoding_shape(self):
-        return np.array(list(self.shape) + [26])
+        # 2 player + 8 orientation + 6 terrain + 8 object + 1 urgency planes. Upstream
+        # hardcoded 26 here, one more than lossless_state_encoding has ever produced.
+        return np.array(list(self.shape) + [25 + len(self._order_feature_names())])
+
+    def _order_feature_names(self):
+        """Extra planes for timed orders: per queue slot (most urgent first) whether
+        it is open, its onions, its tomatoes and its steps left in tenths of the
+        deadline; then the episode's remaining time in tenths. Empty without timed
+        orders, so every other layout keeps its 25 planes."""
+        if self.timed_orders is None:
+            return []
+        names = []
+        for k in range(self.timed_orders["queue"]):
+            names += [f"order_{k}_open", f"order_{k}_onions", f"order_{k}_tomatoes", f"order_{k}_time_left"]
+        return names + ["episode_time_left"]
+
+    def _fill_order_planes(self, state_mask_dict, overcooked_state, horizon):
+        p = self.timed_orders
+        buckets = p["time_buckets"]
+        ones = np.ones(self.shape)
+        orders = overcooked_state.orders or []
+        for k, order in enumerate(orders[: p["queue"]]):
+            time_left = max(order.deadline - overcooked_state.timestep, 0)
+            ingredients = Counter(order.recipe.ingredients)
+            state_mask_dict[f"order_{k}_open"] = ones.copy()
+            state_mask_dict[f"order_{k}_onions"] = ones * ingredients["onion"]
+            state_mask_dict[f"order_{k}_tomatoes"] = ones * ingredients["tomato"]
+            state_mask_dict[f"order_{k}_time_left"] = ones * int(np.ceil(buckets * time_left / p["deadline"]))
+        episode_left = max(horizon - overcooked_state.timestep, 0)
+        state_mask_dict["episode_time_left"] = ones * int(np.ceil(buckets * episode_left / horizon))
 
     def lossless_state_encoding_old_dynamics(
         self,
@@ -2269,6 +2489,7 @@ class OvercookedGridworld:
             "tomatoes",
         ]
         urgency_features = ["urgency"]
+        order_features = self._order_feature_names()
         all_objects = overcooked_state.all_objects_list
 
         def make_layer(position, value):
@@ -2290,12 +2511,16 @@ class OvercookedGridworld:
                 )
             ]
 
-            LAYERS = ordered_player_features + base_map_features + variable_map_features + urgency_features
+            LAYERS = (
+                ordered_player_features + base_map_features + variable_map_features + urgency_features + order_features
+            )
             state_mask_dict = {k: np.zeros(self.shape) for k in LAYERS}
 
             # MAP LAYERS
             if horizon - overcooked_state.timestep < 40:
                 state_mask_dict["urgency"] = np.ones(self.shape)
+            if order_features:
+                self._fill_order_planes(state_mask_dict, overcooked_state, horizon)
 
             for loc in self.get_counter_locations():
                 state_mask_dict["counter_loc"][loc] = 1

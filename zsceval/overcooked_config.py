@@ -233,6 +233,27 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         default=0.0,
         help="Probability that a scripted partner is swapped at each swap step.",
     )
+    # Timed orders (multi-recipe env only; experiments/report/timed-orders-env-spec.md).
+    parser.add_argument(
+        "--timed_orders",
+        action="store_true",
+        default=False,
+        help="Replace the static menu with an order queue: tickets arrive over time, "
+        "expire with a penalty, and pay less the later they are served. Widens the "
+        "observation by 4 planes per queue slot + 1, so no existing checkpoint loads.",
+    )
+    parser.add_argument("--order_queue", type=int, default=3, help="Open tickets at most.")
+    parser.add_argument("--order_arrival", type=int, default=60, help="Mean steps between arrivals (+-25%%).")
+    parser.add_argument("--order_deadline", type=int, default=150, help="Steps from arrival to expiry.")
+    parser.add_argument(
+        "--order_penalty", type=int, default=10, help="Team cost of an expired ticket, split evenly (must be even)."
+    )
+    parser.add_argument(
+        "--order_min_pay",
+        type=float,
+        default=0.5,
+        help="Share of a recipe's value paid at the deadline; full value at arrival, linear between.",
+    )
     parser.add_argument(
         "--morl_diminishing_alpha",
         type=float,
