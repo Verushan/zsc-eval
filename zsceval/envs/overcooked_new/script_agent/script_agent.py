@@ -256,3 +256,24 @@ SCRIPT_AGENTS.update(
 class _Idle(BaseScriptAgent):
     def step(self, mdp, state, player_idx):
         return Action.STAY
+
+
+class _ScriptRegistry(dict):
+    """SCRIPT_AGENTS, plus order-family members (order_family.py) built from their names on first lookup."""
+
+    def __missing__(self, name):
+        from zsceval.envs.overcooked_new.script_agent import order_family
+
+        factory = order_family.make(name)
+        self[name] = factory
+        return factory
+
+    def __contains__(self, name):
+        if dict.__contains__(self, name):
+            return True
+        from zsceval.envs.overcooked_new.script_agent import order_family
+
+        return order_family.parse(name) is not None
+
+
+SCRIPT_AGENTS = _ScriptRegistry(SCRIPT_AGENTS)

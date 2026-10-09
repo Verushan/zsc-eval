@@ -12,7 +12,8 @@ soups nobody ordered. `OrderCook` decides afresh every step:
                           fetch the next missing ingredient for the most wanted order
 
 Targets: open orders are ranked by `preference` ("urgent" = earliest deadline,
-"valuable" = highest value, then urgency). Orders already being cooked or
+"valuable" = highest value, then urgency, "blind" = the menu in a fixed random
+order, ignoring the queue). Orders already being cooked or
 waiting in a pot are crossed off; idle pots are matched to the remaining orders
 whose recipe contains what is already in them, empty pots to the next ones.
 `jobs` restricts which of "pot" and "serve" the cook does, which is how the
@@ -44,7 +45,7 @@ def _missing(target, contents):
 class OrderCook(BaseScriptAgent):
     def __init__(self, preference="urgent", jobs=("pot", "serve")):
         super().__init__()
-        assert preference in ("urgent", "valuable")
+        assert preference in ("urgent", "valuable", "blind")
         assert set(jobs) <= {"pot", "serve"} and jobs
         self.preference = preference
         self.jobs = tuple(jobs)
@@ -52,10 +53,16 @@ class OrderCook(BaseScriptAgent):
     def reset(self, mdp, state, player_idx):
         self.last_pos = state.players[player_idx].position
         self.stuck_time = 0
+        # "blind" ignores the queue: it works through the menu in an order fixed
+        # for the episode, the way an order-unaware cook would.
+        self.menu = list(state.all_orders)
+        random.shuffle(self.menu)
 
     # -- planning -----------------------------------------------------------
 
     def _ranked_orders(self, state):
+        if self.preference == "blind":
+            return [(r, 0) for r in self.menu]
         if state.orders is not None:
             orders = [(o.recipe, o.deadline) for o in state.orders]
         else:
