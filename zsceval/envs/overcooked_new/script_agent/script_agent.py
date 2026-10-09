@@ -236,3 +236,23 @@ for onion in range(10 + 1):
             soup_ratio=soup_ratio,
             noise_ratio=noise_ratio,
         )
+
+# Order-aware cooks for the timed-order env (order_script.py): the oracle reads
+# the queue and builds the most urgent (or most valuable) open recipe; the two
+# specialists do only their half of that job.
+from zsceval.envs.overcooked_new.script_agent.order_script import OrderCook  # noqa: E402
+
+SCRIPT_AGENTS.update(
+    {
+        "order_cook": functools.partial(OrderCook, preference="urgent"),
+        "order_cook_valuable": functools.partial(OrderCook, preference="valuable"),
+        "order_potter": functools.partial(OrderCook, preference="urgent", jobs=("pot",)),
+        "order_server": functools.partial(OrderCook, preference="urgent", jobs=("serve",)),
+        "idle": lambda: _Idle(),
+    }
+)
+
+
+class _Idle(BaseScriptAgent):
+    def step(self, mdp, state, player_idx):
+        return Action.STAY

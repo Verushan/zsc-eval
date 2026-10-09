@@ -973,16 +973,18 @@ EVENT_TYPES = [
     "useless_tomato_potting",
 ]
 
-# Timed orders (experiments/report/timed-orders-env-spec.md). `queue` open
-# tickets at most; a new one every `arrival` steps (+-`jitter` of it) while there
+# Timed orders (experiments/report/timed-orders-env-spec.md). Defaults tuned with
+# experiments/timed_orders_check.py: a queue-reading scripted pair keeps ~90% of
+# orders on time on unident_s_m and random1_m, a lone cook loses a quarter of the
+# return on unident_s_m and all of it on random1_m. `queue` open tickets at most; a new one every `arrival` steps (+-`jitter` of it) while there
 # is room; each due `deadline` steps after it arrives; an expired ticket costs
 # the team `penalty`, split evenly; a matched delivery pays
 # value * (min_pay + (1 - min_pay) * time_left / deadline), rounded.
 TIMED_ORDER_DEFAULTS = {
     "queue": 3,
-    "arrival": 60,
+    "arrival": 30,
     "jitter": 0.25,
-    "deadline": 150,
+    "deadline": 75,
     "penalty": 10,
     "min_pay": 0.5,
     # Steps-left planes are bucketed into tenths: the PPO featurisation casts

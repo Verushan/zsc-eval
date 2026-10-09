@@ -243,8 +243,8 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         "observation by 4 planes per queue slot + 1, so no existing checkpoint loads.",
     )
     parser.add_argument("--order_queue", type=int, default=3, help="Open tickets at most.")
-    parser.add_argument("--order_arrival", type=int, default=60, help="Mean steps between arrivals (+-25%%).")
-    parser.add_argument("--order_deadline", type=int, default=150, help="Steps from arrival to expiry.")
+    parser.add_argument("--order_arrival", type=int, default=30, help="Mean steps between arrivals (+-25%%).")
+    parser.add_argument("--order_deadline", type=int, default=75, help="Steps from arrival to expiry.")
     parser.add_argument(
         "--order_penalty", type=int, default=10, help="Team cost of an expired ticket, split evenly (must be even)."
     )

@@ -51,6 +51,11 @@ def compute_valid_map(mdp, state, player_idx, terrain_type, obj_lst):
                         valid_map[y, x] += state.has_object(pos) and state.get_object(pos).name == "soup"
                 elif obj == "empty":
                     valid_map[y, x] += terrain in "XP" and not state.has_object(pos)
+                elif obj == "idle_soup":
+                    # A pot holding ingredients that has not started cooking.
+                    if terrain == "P" and state.has_object(pos) and state.get_object(pos).name == "soup":
+                        soup = state.get_object(pos)
+                        valid_map[y, x] += soup.is_idle and len(soup.ingredients) > 0
                 elif obj == "unfull_soup":
                     if terrain == "P":
                         if state.has_object(pos) and state.get_object(pos).name == "soup":
