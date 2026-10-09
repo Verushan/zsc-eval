@@ -435,6 +435,7 @@ class OvercookedEnv:
             shaped_r_by_agent=mdp_infos["shaped_reward_by_agent"],
             num_players=self.mdp.num_players,
             t=self.state.timestep,
+            order_info=mdp_infos.get("order_info"),
         )
         vec_r_by_agent = self.objectives.step(context)
         self.game_stats["cumulative_objective_rewards_by_agent"] += vec_r_by_agent

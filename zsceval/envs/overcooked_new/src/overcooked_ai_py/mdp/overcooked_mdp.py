@@ -994,8 +994,9 @@ TIMED_ORDER_DEFAULTS = {
 
 
 def resolve_timed_orders(timed_orders):
-    """None/False -> None; True -> the defaults; a dict -> the defaults updated with it."""
-    if not timed_orders:
+    """None/False -> None; True or {} -> the defaults; a dict -> the defaults updated with it."""
+    # Not `if not timed_orders`: an empty dict means "defaults", not "off".
+    if timed_orders is None or timed_orders is False:
         return None
     params = dict(TIMED_ORDER_DEFAULTS)
     if isinstance(timed_orders, dict):
@@ -1278,7 +1279,7 @@ class OvercookedGridworld:
         return int(round(recipe.value * (p["min_pay"] + (1 - p["min_pay"]) * frac)))
 
     def deliver_soup_timed(self, state, player, soup):
-        """Fill the most urgent open order for this recipe. Returns (pay, matched).
+        """Fill the most urgent open order for this recipe. Returns (pay, matched, time_left_frac).
 
         A soup no open order wants pays 0; a recipe outside the layout's menu
         keeps the usual -10.
@@ -1287,10 +1288,12 @@ class OvercookedGridworld:
         player.remove_object()
         matches = [o for o in state.orders if o.recipe == soup.recipe]
         if not matches:
-            return (0 if soup.recipe in state.all_orders else -10), False
+            return (0 if soup.recipe in state.all_orders else -10), False, 0.0
         order = min(matches, key=lambda o: (o.deadline, o.arrival))
         state.orders.remove(order)
-        return self.order_pay(soup.recipe, order.deadline - state.timestep), True
+        time_left = order.deadline - state.timestep
+        frac = min(max(time_left / self.timed_orders["deadline"], 0.0), 1.0)
+        return self.order_pay(soup.recipe, time_left), True, frac
 
     def get_random_start_state(self, random_player_pos=False):
         state = self.get_standard_start_state()
@@ -1435,6 +1438,9 @@ class OvercookedGridworld:
                 "delivered_by_agent": [0] * self.num_players,
                 "pay_by_agent": [0] * self.num_players,
                 "unmatched_by_agent": [0] * self.num_players,
+                # Per matched delivery: share of the order's window left, and the recipe's base value.
+                "time_left_frac_by_agent": [0.0] * self.num_players,
+                "value_by_agent": [0] * self.num_players,
                 "expired": 0,
             }
 
@@ -1614,10 +1620,13 @@ class OvercookedGridworld:
                 if obj.name == "soup":
                     # Planner-built states carry no queue (orders is None): price those statically.
                     if self.timed_orders is not None and new_state.orders is not None:
-                        delivery_rew, matched = self.deliver_soup_timed(new_state, player, obj)
+                        delivery_rew, matched, frac = self.deliver_soup_timed(new_state, player, obj)
                         if order_info is not None:
                             order_info["delivered_by_agent" if matched else "unmatched_by_agent"][player_idx] += 1
-                            order_info["pay_by_agent"][player_idx] += delivery_rew if matched else 0
+                            if matched:
+                                order_info["pay_by_agent"][player_idx] += delivery_rew
+                                order_info["time_left_frac_by_agent"][player_idx] += frac
+                                order_info["value_by_agent"][player_idx] += obj.recipe.value
                     else:
                         delivery_rew = self.deliver_soup(new_state, player, obj)
                     sparse_reward[player_idx] += delivery_rew

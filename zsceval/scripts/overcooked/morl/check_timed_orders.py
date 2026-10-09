@@ -12,6 +12,7 @@ rest exercise each rule of experiments/report/timed-orders-env-spec.md:
     replay     same seed -> same orders; to_dict/from_dict round-trips
     obs        4 planes per queue slot + 1, integer-valued, most urgent first
     wrapper    the gym env builds from flags, obs space matches obs, episode stats add up
+    objectives the order objectives (preset `orders`) agree with the env's accounting
 
     python zsceval/scripts/overcooked/morl/check_timed_orders.py
     python zsceval/scripts/overcooked/morl/check_timed_orders.py --only pay match
@@ -254,6 +255,40 @@ def check_wrapper():
         raise AssertionError("old env accepted --timed_orders")
 
 
+def check_objectives():
+    """The order objectives agree with the env's own accounting, over a scripted episode."""
+    from zsceval.envs.overcooked_new.Overcooked_Env import OvercookedEnv
+    from zsceval.envs.overcooked_new.script_agent.script_agent import SCRIPT_AGENTS
+
+    np.random.seed(4)
+    import random
+
+    random.seed(4)
+    m = OvercookedGridworld.from_layout_name(LAYOUT, old_dynamics=False, timed_orders={})
+    env = OvercookedEnv.from_mdp(m, horizon=400, objectives="orders_dense")
+    env.reset()
+    cooks = [SCRIPT_AGENTS["order_cook"](), SCRIPT_AGENTS["order_cook"]()]
+    for i, c in enumerate(cooks):
+        c.reset(env.mdp, env.state, i)
+    info = {}
+    while not env.is_done():
+        joint = tuple(c.step(env.mdp, env.state, i) for i, c in enumerate(cooks))
+        _, _, _, info = env.step(joint)
+    ep = info["episode"]
+    names = list(ep["ep_objective_names"])
+    vec = np.asarray(ep["ep_vec_r_by_agent"])
+    col = lambda n: vec[:, names.index(n)]  # noqa: E731
+    assert ep["ep_orders_delivered"] > 3, ep["ep_orders_delivered"]
+    assert np.array_equal(col("order_served"), ep["ep_orders_delivered_by_agent"])
+    assert np.isclose(col("order_expiry").sum(), -ep["ep_orders_expired"])
+    assert 0 < col("order_speed").sum() <= ep["ep_orders_delivered"]
+    # Each delivery pays value * (min_pay + (1 - min_pay) * frac), rounded: between
+    # min_pay and all of the recipe values filled, give or take rounding.
+    min_pay, n = m.timed_orders["min_pay"], ep["ep_orders_delivered"]
+    value = 20 * col("order_value").sum()  # back to points
+    assert value * min_pay - n <= ep["ep_order_pay"] <= value + n, (ep["ep_order_pay"], value)
+
+
 CHECKS = {
     "off": check_off,
     "lifecycle": check_lifecycle,
@@ -263,6 +298,7 @@ CHECKS = {
     "replay": check_replay,
     "obs": check_obs,
     "wrapper": check_wrapper,
+    "objectives": check_objectives,
 }
 
 

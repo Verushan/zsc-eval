@@ -67,6 +67,9 @@ class ObjectiveContext:
         shaped_r_by_agent: Per-agent scalar shaping reward for this step.
         num_players: Number of agents.
         t: Timestep index within the episode.
+        order_info: This step's timed-order events (multi-recipe env with
+            ``timed_orders`` only; ``None`` otherwise): matched deliveries, pay,
+            time-left fractions and recipe values per agent, and the team's expiries.
     """
 
     mdp: Any
@@ -78,6 +81,7 @@ class ObjectiveContext:
     shaped_r_by_agent: Sequence[float]
     num_players: int
     t: int
+    order_info: Optional[Dict[str, Any]] = None
 
     def count(self, agent_idx: int, key: str) -> int:
         """Read one event counter, tolerating keys absent from this env version.
@@ -654,6 +658,52 @@ class ObjectiveVector:
         }
 
 
+class OrderObjective(Objective):
+    """One field of ``context.order_info`` per agent, for the timed-order env.
+
+    The four order objectives pull against each other, which is why they exist:
+    with a static menu every objective served "more soup", and MORL had nothing
+    to trade off (experiments/report/timed-orders-env-spec.md). Here rushing the
+    order about to expire (``order_served``, ``order_expiry``) competes with
+    cooking the valuable recipe (``order_value``) and with serving each order as
+    early as possible (``order_speed``). Without timed orders they are 0.
+    """
+
+    def __init__(self, name, description, field, scale=1.0, team=False):
+        self.name, self.description = name, description
+        self.field, self.scale, self.team = field, float(scale), team
+
+    def __call__(self, context: ObjectiveContext) -> np.ndarray:
+        oi = context.order_info
+        if oi is None:
+            return np.zeros(context.num_players)
+        if self.team:
+            # A team event (an expiry) is shared evenly, like its reward penalty.
+            return np.full(context.num_players, float(oi[self.field]) / context.num_players) * self.scale
+        return np.asarray(oi[self.field], dtype=np.float64) * self.scale
+
+
+def OrderServed(scale: float = 1.0) -> OrderObjective:
+    return OrderObjective("order_served", "Open orders filled.", "delivered_by_agent", scale)
+
+
+def OrderSpeed(scale: float = 1.0) -> OrderObjective:
+    return OrderObjective(
+        "order_speed", "Share of each filled order's window still left when served.", "time_left_frac_by_agent", scale
+    )
+
+
+def OrderValue(scale: float = 1.0 / 20) -> OrderObjective:
+    # In units of the three-ingredient recipe (value 20), so one such order is 1.
+    return OrderObjective("order_value", "Base value of the recipes filled, /20.", "value_by_agent", scale)
+
+
+def OrderExpiry(scale: float = -1.0) -> OrderObjective:
+    # Negative: an expiry is a cost. Keep it out of --morl_adaptive_weights, whose
+    # update reads realised objective shares and assumes they are non-negative.
+    return OrderObjective("order_expiry", "Orders lost to their deadline (team, negative).", "expired", scale, team=True)
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -673,6 +723,10 @@ OBJECTIVE_REGISTRY: Dict[str, Callable[[], Objective]] = {
     "fill_pot": FillPot,
     "fetch_dish": FetchDish,
     "plate_soup": PlateSoup,
+    "order_served": OrderServed,
+    "order_speed": OrderSpeed,
+    "order_value": OrderValue,
+    "order_expiry": OrderExpiry,
 }
 
 # Named presets
@@ -752,6 +806,11 @@ OBJECTIVE_SETS: Dict[str, List[str]] = {
     # The fill-in suite's task view: deliveries plus the three jobs that lead to
     # one. Old (onion-only) layouts; see FillPot above.
     "tasks": ["task_completion", "fill_pot", "fetch_dish", "plate_soup"],
+    # Timed-order env (--timed_orders) only: the four conflicting order goals,
+    # and the same with the two dense prep objectives for a learnable signal
+    # early in training.
+    "orders": ["order_served", "order_speed", "order_value", "order_expiry"],
+    "orders_dense": ["order_served", "order_speed", "order_value", "order_expiry", "ingredient_prep", "plating"],
 }
 
 
