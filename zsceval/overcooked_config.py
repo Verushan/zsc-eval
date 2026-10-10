@@ -249,6 +249,12 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         "--order_penalty", type=int, default=10, help="Team cost of an expired ticket, split evenly (must be even)."
     )
     parser.add_argument(
+        "--order_obs_off",
+        action="store_true",
+        default=False,
+        help="Timed orders without the queue planes in the observation (diagnostic: the agent cannot see the orders).",
+    )
+    parser.add_argument(
         "--order_min_pay",
         type=float,
         default=0.5,

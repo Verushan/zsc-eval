@@ -830,6 +830,7 @@ class Overcooked(gym.Env):
                 "deadline": all_args.order_deadline,
                 "penalty": all_args.order_penalty,
                 "min_pay": all_args.order_min_pay,
+                "obs": not getattr(all_args, "order_obs_off", False),
             }
         env_params = {
             "horizon": all_args.episode_length,

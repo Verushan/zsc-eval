@@ -990,6 +990,9 @@ TIMED_ORDER_DEFAULTS = {
     # Steps-left planes are bucketed into tenths: the PPO featurisation casts
     # every plane to int, so a raw fraction would round to 0.
     "time_buckets": 10,
+    # False hides the queue from the agent (no extra planes): a diagnostic for
+    # whether the order planes themselves get in the way of learning.
+    "obs": True,
 }
 
 
@@ -2333,7 +2336,7 @@ class OvercookedGridworld:
         it is open, its onions, its tomatoes and its steps left in tenths of the
         deadline; then the episode's remaining time in tenths. Empty without timed
         orders, so every other layout keeps its 25 planes."""
-        if self.timed_orders is None:
+        if self.timed_orders is None or not self.timed_orders["obs"]:
             return []
         names = []
         for k in range(self.timed_orders["queue"]):
