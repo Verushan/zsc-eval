@@ -249,6 +249,13 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         "--order_penalty", type=int, default=10, help="Team cost of an expired ticket, split evenly (must be even)."
     )
     parser.add_argument(
+        "--order_penalty_anneal_horizon",
+        type=float,
+        default=0,
+        help="Ramp the expiry penalty into the training reward linearly from 0 to full over this many env "
+        "steps (0 = full from the start). The logged ep_sparse_r always carries the full penalty.",
+    )
+    parser.add_argument(
         "--order_obs_off",
         action="store_true",
         default=False,

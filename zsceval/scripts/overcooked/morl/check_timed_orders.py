@@ -14,6 +14,7 @@ rest exercise each rule of experiments/report/timed-orders-env-spec.md:
     wrapper    the gym env builds from flags, obs space matches obs, episode stats add up
     objectives the order objectives (preset `orders`) agree with the env's accounting
     scripts    a scripted partner holds a seat in training, swaps mid-game, is restored on reset
+    curriculum the expiry-penalty ramp: none in training at step 0, half midway, full after; logs keep it all
 
     python zsceval/scripts/overcooked/morl/check_timed_orders.py
     python zsceval/scripts/overcooked/morl/check_timed_orders.py --only pay match
@@ -328,6 +329,45 @@ def check_scripts():
     assert env.script_agent[1] is None
 
 
+def check_curriculum():
+    """--order_penalty_anneal_horizon hands the expiry penalty back in training only, and phases it in."""
+    from zsceval.config import get_config
+    from zsceval.envs.overcooked_new.Overcooked_Env import Overcooked
+    from zsceval.overcooked_config import get_overcooked_args
+
+    parser = get_overcooked_args(get_config())
+    parser.add_argument("--use_phi", default=False, action="store_true")
+    args = parser.parse_args(
+        ["--env_name", "Overcooked", "--algorithm_name", "mappo", "--experiment_name", "timed_check",
+         "--layout_name", LAYOUT, "--num_agents", "2", "--episode_length", "400", "--overcooked_version", "new",
+         "--timed_orders", "--order_penalty_anneal_horizon", "1000", "--initial_reward_shaping_factor", "0",
+         "--reward_shaping_factor", "0"]
+    )  # fmt: skip
+    args.old_dynamics = False
+    env = Overcooked(args, run_dir=os.environ.get("TMPDIR", "/tmp"))
+
+    def episode(step_count):
+        env.anneal_reward_shaping_factor(step_count)
+        env.reset()
+        rng = np.random.default_rng(0)
+        train, info = 0.0, None
+        for _ in range(400):
+            _o, _s, r, done, info, _a = env.step(rng.integers(0, 6, size=(2, 1)))
+            train += r[0][0]
+            if done[0]:
+                break
+        return train, info["episode"]
+
+    train0, ep0 = episode(0)
+    expired = ep0["ep_orders_expired"]
+    assert expired > 0 and ep0["ep_sparse_r"] == ep0["ep_order_pay"] - 10 * expired
+    assert np.isclose(train0, ep0["ep_order_pay"]), (train0, ep0)  # no penalty in training yet
+    train_half, ep_half = episode(500)
+    assert np.isclose(train_half, ep_half["ep_order_pay"] - 5 * ep_half["ep_orders_expired"]), (train_half, ep_half)
+    train_full, ep_full = episode(5000)
+    assert np.isclose(train_full, ep_full["ep_sparse_r"]), (train_full, ep_full)
+
+
 CHECKS = {
     "off": check_off,
     "lifecycle": check_lifecycle,
@@ -339,6 +379,7 @@ CHECKS = {
     "wrapper": check_wrapper,
     "objectives": check_objectives,
     "scripts": check_scripts,
+    "curriculum": check_curriculum,
 }
 
 

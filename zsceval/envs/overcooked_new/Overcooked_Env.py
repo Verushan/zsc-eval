@@ -767,6 +767,13 @@ class Overcooked(gym.Env):
         self._initial_reward_shaping_factor = all_args.initial_reward_shaping_factor
         self.reward_shaping_factor = all_args.reward_shaping_factor
         self.reward_shaping_horizon = all_args.reward_shaping_horizon
+        # Timed orders: ramp the expiry penalty into the *training* reward from 0 to
+        # full over this many env steps (0 = full from the start). The logged
+        # ep_sparse_r always carries the full penalty. Without a ramp, self-play
+        # learned nothing: ~11 unavoidable expiries per episode drowned the +3/+5
+        # shaping signals (pilot 66243, ablations 66739-66741).
+        self.order_penalty_horizon = int(getattr(all_args, "order_penalty_anneal_horizon", 0) or 0)
+        self.order_penalty_weight = 1.0 if self.order_penalty_horizon <= 0 else 0.0
         self.use_phi = all_args.use_phi
         self.use_hsp = all_args.use_hsp
         self.store_traj = getattr(all_args, "store_traj", False)
@@ -1248,6 +1255,11 @@ class Overcooked(gym.Env):
             shaped_reward_p1 = sparse_reward + self.reward_shaping_factor * dense_reward[1]
         else:
             next_state, sparse_reward, done, info = self.base_env.step(joint_action, display_phi=False)
+            log_sparse_reward = sparse_reward
+            if self.order_penalty_weight < 1.0 and "order_info" in info:
+                # Hand back the part of the expiry penalty the curriculum has not phased in yet.
+                penalty = info["order_info"]["expired"] * self.base_env.mdp.timed_orders["penalty"]
+                sparse_reward = sparse_reward + (1.0 - self.order_penalty_weight) * penalty
             if self.use_hsp:
                 shaped_info = info["shaped_info_by_agent"]
                 vec_shaped_info = np.array(
@@ -1320,7 +1332,7 @@ class Overcooked(gym.Env):
             state = self.base_env.state
             self.traj["ep_states"][0].append(state)
             self.traj["ep_actions"][0].append(joint_action)
-            self.traj["ep_rewards"][0].append(sparse_reward)
+            self.traj["ep_rewards"][0].append(log_sparse_reward)
             self.traj["ep_dones"][0].append(done)
             self.traj["ep_infos"][0].append(info)
             if done:
@@ -1364,6 +1376,8 @@ class Overcooked(gym.Env):
         """
         new_factor = self._anneal(self._initial_reward_shaping_factor, timesteps, self.reward_shaping_horizon)
         self.set_reward_shaping_factor(new_factor)
+        if self.order_penalty_horizon > 0:
+            self.order_penalty_weight = min(1.0, float(timesteps) / self.order_penalty_horizon)
 
     def set_reward_shaping_factor(self, factor):
         self.reward_shaping_factor = factor
