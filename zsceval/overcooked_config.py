@@ -249,6 +249,13 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         "--order_penalty", type=int, default=10, help="Team cost of an expired ticket, split evenly (must be even)."
     )
     parser.add_argument(
+        "--order_time_buckets",
+        type=int,
+        default=10,
+        help="Resolution of the time-left and episode-clock planes: values run 0..N on every cell. "
+        "Smaller N keeps those whole-grid constants near the scale of the other planes.",
+    )
+    parser.add_argument(
         "--order_unmatched_pay",
         type=float,
         default=0.0,
