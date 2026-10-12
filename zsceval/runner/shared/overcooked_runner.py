@@ -221,7 +221,7 @@ class OvercookedRunner(Runner):
         episode = info["episode"]
         # Timed orders (multi-recipe env, --timed_orders): served / expired / pay.
         if "ep_orders_expired" in episode:
-            for k in ("ep_orders_delivered", "ep_orders_expired", "ep_order_pay", "ep_unmatched_soups", "ep_on_time_rate"):
+            for k in ("ep_orders_delivered", "ep_orders_expired", "ep_order_pay", "ep_unmatched_soups", "ep_unmatched_pay", "ep_on_time_rate"):
                 env_infos[f"{prefix}{k}"].append(episode[k])
             for a in range(self.num_agents):
                 env_infos[f"{prefix}ep_orders_delivered_by_agent{a}"].append(episode["ep_orders_delivered_by_agent"][a])

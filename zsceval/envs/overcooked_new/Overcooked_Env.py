@@ -341,6 +341,7 @@ class OvercookedEnv:
                     "cumulative_orders_delivered_by_agent": np.zeros(self.mdp.num_players, dtype=int),
                     "cumulative_order_pay_by_agent": np.zeros(self.mdp.num_players, dtype=int),
                     "cumulative_unmatched_by_agent": np.zeros(self.mdp.num_players, dtype=int),
+                    "cumulative_unmatched_pay_by_agent": np.zeros(self.mdp.num_players, dtype=int),
                     "cumulative_orders_expired": 0,
                 }
             )
@@ -405,6 +406,8 @@ class OvercookedEnv:
                     "ep_orders_expired": int(expired),
                     "ep_order_pay": int(self.game_stats["cumulative_order_pay_by_agent"].sum()),
                     "ep_unmatched_soups": int(self.game_stats["cumulative_unmatched_by_agent"].sum()),
+                    # Pay (or the -10 for off-menu soups) from deliveries that filled no order.
+                    "ep_unmatched_pay": int(self.game_stats["cumulative_unmatched_pay_by_agent"].sum()),
                     # Of the orders that closed (served or expired), the share served in time.
                     "ep_on_time_rate": float(delivered.sum() / max(delivered.sum() + expired, 1)),
                 }
@@ -464,6 +467,7 @@ class OvercookedEnv:
             self.game_stats["cumulative_orders_delivered_by_agent"] += np.array(oi["delivered_by_agent"])
             self.game_stats["cumulative_order_pay_by_agent"] += np.array(oi["pay_by_agent"])
             self.game_stats["cumulative_unmatched_by_agent"] += np.array(oi["unmatched_by_agent"])
+            self.game_stats["cumulative_unmatched_pay_by_agent"] += np.array(oi["unmatched_pay_by_agent"])
             self.game_stats["cumulative_orders_expired"] += oi["expired"]
 
         for event_type, bool_list_by_agent in infos["event_infos"].items():
@@ -837,6 +841,7 @@ class Overcooked(gym.Env):
                 "deadline": all_args.order_deadline,
                 "penalty": all_args.order_penalty,
                 "min_pay": all_args.order_min_pay,
+                "unmatched_pay": getattr(all_args, "order_unmatched_pay", 0.0),
                 "obs": not getattr(all_args, "order_obs_off", False),
             }
         env_params = {

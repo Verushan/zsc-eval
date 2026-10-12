@@ -249,6 +249,13 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         "--order_penalty", type=int, default=10, help="Team cost of an expired ticket, split evenly (must be even)."
     )
     parser.add_argument(
+        "--order_unmatched_pay",
+        type=float,
+        default=0.0,
+        help="Share of a menu recipe's value paid for a soup that fills no open order (0 = matched-only pay, "
+        "which self-play never learned; 0.5 keeps the static-menu game learnable under the queue).",
+    )
+    parser.add_argument(
         "--order_penalty_anneal_horizon",
         type=float,
         default=0,

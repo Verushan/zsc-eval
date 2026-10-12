@@ -15,6 +15,7 @@ rest exercise each rule of experiments/report/timed-orders-env-spec.md:
     objectives the order objectives (preset `orders`) agree with the env's accounting
     scripts    a scripted partner holds a seat in training, swaps mid-game, is restored on reset
     curriculum the expiry-penalty ramp: none in training at step 0, half midway, full after; logs keep it all
+    partial    --order_unmatched_pay: unmatched menu soups pay a share; matched still full; default 0
 
     python zsceval/scripts/overcooked/morl/check_timed_orders.py
     python zsceval/scripts/overcooked/morl/check_timed_orders.py --only pay match
@@ -242,7 +243,8 @@ def check_wrapper():
         if done[0]:
             break
     ep = info["episode"]
-    assert ep["ep_sparse_r"] == sparse == ep["ep_order_pay"] - args.order_penalty * ep["ep_orders_expired"]
+    paid = ep["ep_order_pay"] + ep["ep_unmatched_pay"]
+    assert ep["ep_sparse_r"] == sparse == paid - args.order_penalty * ep["ep_orders_expired"]
     assert ep["ep_orders_expired"] > 0 and 0 <= ep["ep_on_time_rate"] <= 1
     # The old env refuses the flag rather than ignoring it.
     from zsceval.envs.overcooked.Overcooked_Env import Overcooked as OldOvercooked
@@ -360,12 +362,34 @@ def check_curriculum():
 
     train0, ep0 = episode(0)
     expired = ep0["ep_orders_expired"]
-    assert expired > 0 and ep0["ep_sparse_r"] == ep0["ep_order_pay"] - 10 * expired
-    assert np.isclose(train0, ep0["ep_order_pay"]), (train0, ep0)  # no penalty in training yet
+    paid0 = ep0["ep_order_pay"] + ep0["ep_unmatched_pay"]
+    assert expired > 0 and ep0["ep_sparse_r"] == paid0 - 10 * expired
+    assert np.isclose(train0, paid0), (train0, ep0)  # no penalty in training yet
     train_half, ep_half = episode(500)
-    assert np.isclose(train_half, ep_half["ep_order_pay"] - 5 * ep_half["ep_orders_expired"]), (train_half, ep_half)
+    paid_half = ep_half["ep_order_pay"] + ep_half["ep_unmatched_pay"]
+    assert np.isclose(train_half, paid_half - 5 * ep_half["ep_orders_expired"]), (train_half, ep_half)
     train_full, ep_full = episode(5000)
     assert np.isclose(train_full, ep_full["ep_sparse_r"]), (train_full, ep_full)
+
+
+def check_partial():
+    """--order_unmatched_pay: a menu soup that fills no order pays that share of its value; off-menu stays -10."""
+    m = mdp(unmatched_pay=0.5)
+    r, other = recipe("onion", "onion", "onion"), recipe("onion", "tomato")
+    st = delivery_state(m, r, [Order(other, 0, 75)])
+    s2, info = m.get_state_transition(st, [Action.INTERACT, Action.STAY])
+    assert info["sparse_reward_by_agent"][0] == 10, info["sparse_reward_by_agent"]  # half of 20
+    assert info["order_info"]["unmatched_pay_by_agent"] == [10, 0] and info["order_info"]["pay_by_agent"] == [0, 0]
+    assert [o.recipe for o in s2.orders] == [other]  # the open order is untouched
+    assert info["shaped_info_by_agent"][0]["deliver_useless_order"] == 0
+    # A matched delivery still pays the full speed-scaled price (served the moment it arrived).
+    st = delivery_state(m, r, [Order(r, 0, PARAMS["deadline"])], timestep=0)
+    _, info = m.get_state_transition(st, [Action.INTERACT, Action.STAY])
+    assert info["sparse_reward_by_agent"][0] == 20 and info["order_info"]["delivered_by_agent"] == [1, 0]
+    # Default (0) is matched-only pay, as before.
+    st = delivery_state(mdp(), r, [Order(other, 0, 75)])
+    _, info = mdp().get_state_transition(st, [Action.INTERACT, Action.STAY])
+    assert info["sparse_reward_by_agent"][0] == 0
 
 
 CHECKS = {
@@ -380,6 +404,7 @@ CHECKS = {
     "objectives": check_objectives,
     "scripts": check_scripts,
     "curriculum": check_curriculum,
+    "partial": check_partial,
 }
 
 
