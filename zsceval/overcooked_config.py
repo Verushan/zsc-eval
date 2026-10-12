@@ -256,6 +256,13 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         "Smaller N keeps those whole-grid constants near the scale of the other planes.",
     )
     parser.add_argument(
+        "--order_planes",
+        choices=["grid", "serve"],
+        default="grid",
+        help="Draw the order planes over every cell (grid; self-play could not learn with it) or only on the "
+        "serving-window cells (serve), like pot contents on pots. Same channels either way.",
+    )
+    parser.add_argument(
         "--order_unmatched_pay",
         type=float,
         default=0.0,

@@ -16,6 +16,7 @@ rest exercise each rule of experiments/report/timed-orders-env-spec.md:
     scripts    a scripted partner holds a seat in training, swaps mid-game, is restored on reset
     curriculum the expiry-penalty ramp: none in training at step 0, half midway, full after; logs keep it all
     partial    --order_unmatched_pay: unmatched menu soups pay a share; matched still full; default 0
+    obs_serve  --order_planes serve: order planes only on serving-window cells, same width
 
     python zsceval/scripts/overcooked/morl/check_timed_orders.py
     python zsceval/scripts/overcooked/morl/check_timed_orders.py --only pay match
@@ -392,6 +393,27 @@ def check_partial():
     assert info["sparse_reward_by_agent"][0] == 0
 
 
+def check_obs_serve():
+    """--order_planes serve: the same channels, written only on the serving-window cells."""
+    np.random.seed(2)
+    m = mdp(planes="serve")
+    s = m.get_standard_start_state()
+    s, _ = stay(m, s, 130)
+    obs = m.lossless_state_encoding(s, 400)[0]
+    assert obs.shape[-1] == 25 + 4 * PARAMS["queue"] + 1
+    serve = set(m.get_serving_locations())
+    extra = obs[:, :, 25:]
+    for x in range(obs.shape[0]):
+        for y in range(obs.shape[1]):
+            if (x, y) in serve:
+                assert extra[x, y, 0] == 1 and extra[x, y, -1] > 0  # order 0 open; clock running
+            else:
+                assert not extra[x, y].any(), (x, y)
+    grid = mdp().lossless_state_encoding(s, 400)[0]
+    x, y = next(iter(serve))
+    assert np.array_equal(grid[x, y], obs[x, y])  # same values where drawn
+
+
 CHECKS = {
     "off": check_off,
     "lifecycle": check_lifecycle,
@@ -405,6 +427,7 @@ CHECKS = {
     "scripts": check_scripts,
     "curriculum": check_curriculum,
     "partial": check_partial,
+    "obs_serve": check_obs_serve,
 }
 
 

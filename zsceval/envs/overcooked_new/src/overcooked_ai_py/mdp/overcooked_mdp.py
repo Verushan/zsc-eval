@@ -998,6 +998,11 @@ TIMED_ORDER_DEFAULTS = {
     # False hides the queue from the agent (no extra planes): a diagnostic for
     # whether the order planes themselves get in the way of learning.
     "obs": True,
+    # Where the order planes are drawn. "grid": constant over every cell (the
+    # original encoding; self-play could not learn with it, even at small
+    # values). "serve": only on the serving-window cells, the way pot contents
+    # appear only on pots -- the same channels, so the same observation width.
+    "planes": "grid",
 }
 
 
@@ -1013,6 +1018,7 @@ def resolve_timed_orders(timed_orders):
         params.update(timed_orders)
     assert params["queue"] >= 1 and params["arrival"] >= 1 and params["deadline"] >= 1
     assert 0 <= params["jitter"] < 1 and 0 <= params["min_pay"] <= 1 and 0 <= params["unmatched_pay"] <= 1
+    assert params["planes"] in ("grid", "serve"), params["planes"]
     return params
 
 
@@ -2356,7 +2362,12 @@ class OvercookedGridworld:
     def _fill_order_planes(self, state_mask_dict, overcooked_state, horizon):
         p = self.timed_orders
         buckets = p["time_buckets"]
-        ones = np.ones(self.shape)
+        if p["planes"] == "serve":
+            ones = np.zeros(self.shape)
+            for loc in self.get_serving_locations():
+                ones[loc] = 1
+        else:
+            ones = np.ones(self.shape)
         orders = overcooked_state.orders or []
         for k, order in enumerate(orders[: p["queue"]]):
             time_left = max(order.deadline - overcooked_state.timestep, 0)
