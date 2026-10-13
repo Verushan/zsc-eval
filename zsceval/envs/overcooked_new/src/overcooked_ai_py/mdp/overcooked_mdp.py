@@ -1003,6 +1003,10 @@ TIMED_ORDER_DEFAULTS = {
     # values). "serve": only on the serving-window cells, the way pot contents
     # appear only on pots -- the same channels, so the same observation width.
     "planes": "grid",
+    # Which parts are shown (diagnostics: a visible queue stopped learning, the
+    # hidden one did not, and the visible version also carries a clock).
+    "queue_planes": True,
+    "clock": True,
 }
 
 
@@ -2355,9 +2359,12 @@ class OvercookedGridworld:
         if self.timed_orders is None or not self.timed_orders["obs"]:
             return []
         names = []
-        for k in range(self.timed_orders["queue"]):
-            names += [f"order_{k}_open", f"order_{k}_onions", f"order_{k}_tomatoes", f"order_{k}_time_left"]
-        return names + ["episode_time_left"]
+        if self.timed_orders["queue_planes"]:
+            for k in range(self.timed_orders["queue"]):
+                names += [f"order_{k}_open", f"order_{k}_onions", f"order_{k}_tomatoes", f"order_{k}_time_left"]
+        if self.timed_orders["clock"]:
+            names.append("episode_time_left")
+        return names
 
     def _fill_order_planes(self, state_mask_dict, overcooked_state, horizon):
         p = self.timed_orders
@@ -2368,7 +2375,7 @@ class OvercookedGridworld:
                 ones[loc] = 1
         else:
             ones = np.ones(self.shape)
-        orders = overcooked_state.orders or []
+        orders = (overcooked_state.orders or []) if p["queue_planes"] else []
         for k, order in enumerate(orders[: p["queue"]]):
             time_left = max(order.deadline - overcooked_state.timestep, 0)
             ingredients = Counter(order.recipe.ingredients)
@@ -2376,8 +2383,9 @@ class OvercookedGridworld:
             state_mask_dict[f"order_{k}_onions"] = ones * ingredients["onion"]
             state_mask_dict[f"order_{k}_tomatoes"] = ones * ingredients["tomato"]
             state_mask_dict[f"order_{k}_time_left"] = ones * int(np.ceil(buckets * time_left / p["deadline"]))
-        episode_left = max(horizon - overcooked_state.timestep, 0)
-        state_mask_dict["episode_time_left"] = ones * int(np.ceil(buckets * episode_left / horizon))
+        if p["clock"]:
+            episode_left = max(horizon - overcooked_state.timestep, 0)
+            state_mask_dict["episode_time_left"] = ones * int(np.ceil(buckets * episode_left / horizon))
 
     def lossless_state_encoding_old_dynamics(
         self,

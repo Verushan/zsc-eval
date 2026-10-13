@@ -17,6 +17,7 @@ rest exercise each rule of experiments/report/timed-orders-env-spec.md:
     curriculum the expiry-penalty ramp: none in training at step 0, half midway, full after; logs keep it all
     partial    --order_unmatched_pay: unmatched menu soups pay a share; matched still full; default 0
     obs_serve  --order_planes serve: order planes only on serving-window cells, same width
+    obs_parts  --order_clock_off / --order_queue_obs_off drop exactly their planes
 
     python zsceval/scripts/overcooked/morl/check_timed_orders.py
     python zsceval/scripts/overcooked/morl/check_timed_orders.py --only pay match
@@ -414,6 +415,18 @@ def check_obs_serve():
     assert np.array_equal(grid[x, y], obs[x, y])  # same values where drawn
 
 
+def check_obs_parts():
+    """--order_clock_off / --order_queue_obs_off drop exactly their planes."""
+    np.random.seed(2)
+    q = PARAMS["queue"]
+    m_noclock, m_clock = mdp(clock=False), mdp(queue_planes=False)
+    s = m_noclock.get_standard_start_state()
+    s, _ = stay(m_noclock, s, 60)
+    a, b, full = m_noclock.lossless_state_encoding(s, 400)[0], m_clock.lossless_state_encoding(s, 400)[0], mdp().lossless_state_encoding(s, 400)[0]
+    assert a.shape[-1] == 25 + 4 * q and b.shape[-1] == 25 + 1
+    assert np.array_equal(a, full[:, :, :-1]) and np.array_equal(b[:, :, -1], full[:, :, -1])
+
+
 CHECKS = {
     "off": check_off,
     "lifecycle": check_lifecycle,
@@ -428,6 +441,7 @@ CHECKS = {
     "curriculum": check_curriculum,
     "partial": check_partial,
     "obs_serve": check_obs_serve,
+    "obs_parts": check_obs_parts,
 }
 
 

@@ -844,6 +844,8 @@ class Overcooked(gym.Env):
                 "unmatched_pay": getattr(all_args, "order_unmatched_pay", 0.0),
                 "time_buckets": getattr(all_args, "order_time_buckets", 10),
                 "planes": getattr(all_args, "order_planes", "grid"),
+                "queue_planes": not getattr(all_args, "order_queue_obs_off", False),
+                "clock": not getattr(all_args, "order_clock_off", False),
                 "obs": not getattr(all_args, "order_obs_off", False),
             }
         env_params = {

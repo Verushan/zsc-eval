@@ -262,6 +262,10 @@ def get_overcooked_args(parser: argparse.ArgumentParser) -> argparse.ArgumentPar
         help="Draw the order planes over every cell (grid; self-play could not learn with it) or only on the "
         "serving-window cells (serve), like pot contents on pots. Same channels either way.",
     )
+    parser.add_argument("--order_clock_off", action="store_true", default=False,
+                        help="Timed orders: drop the episode-clock plane (diagnostic).")
+    parser.add_argument("--order_queue_obs_off", action="store_true", default=False,
+                        help="Timed orders: drop the queue planes but keep the clock (diagnostic).")
     parser.add_argument(
         "--order_unmatched_pay",
         type=float,
