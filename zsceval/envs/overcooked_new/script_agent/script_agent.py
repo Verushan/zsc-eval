@@ -249,6 +249,31 @@ SCRIPT_AGENTS.update(
         "order_potter": functools.partial(OrderCook, preference="urgent", jobs=("pot",)),
         "order_server": functools.partial(OrderCook, preference="urgent", jobs=("serve",)),
         "idle": lambda: _Idle(),
+        # The fill-in suite's personalities for static multi-recipe menus (the
+        # `_cx` kitchens): "urgent" without a queue works through the menu in
+        # file order, which starts with the cheapest dishes, so these rank by value.
+        # idle_move: a specialist with nothing to do steps about rather than
+        # parking in a corridor (order_script.OrderCook).
+        "menu_cook": functools.partial(OrderCook, preference="valuable", idle_move=True),
+        "menu_potter": functools.partial(OrderCook, preference="valuable", idle_move=True, jobs=("pot",)),
+        "menu_server": functools.partial(OrderCook, preference="valuable", idle_move=True, jobs=("serve",)),
+        "menu_potter_onion": functools.partial(
+            OrderCook, preference="valuable", idle_move=True, jobs=("pot",), ingredients=("onion",)
+        ),
+        "menu_potter_tomato": functools.partial(
+            OrderCook, preference="valuable", idle_move=True, jobs=("pot",), ingredients=("tomato",)
+        ),
+        # The fill-in oracle's complements of the ingredient specialists.
+        "menu_cook_onion": functools.partial(
+            OrderCook, preference="valuable", idle_move=True, ingredients=("onion",)
+        ),
+        "menu_cook_tomato": functools.partial(
+            OrderCook, preference="valuable", idle_move=True, ingredients=("tomato",)
+        ),
+        **{
+            f"menu_dial{k}": functools.partial(OrderCook, preference="valuable", idle_move=True, pot_bias=k / 10)
+            for k in range(11)
+        },
     }
 )
 

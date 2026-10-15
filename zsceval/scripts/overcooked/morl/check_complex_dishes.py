@@ -11,6 +11,8 @@ and pay 0 rather than -10 for a dish that is not on the menu.
     anneal     --morl_anneal_dense in the new env: dense weights follow the shaping factor
     team       --morl_team_task in the new env: the task columns pay both agents
     scripts    a fixed-dish scripted pair cooks its dish; the onion script cooks nothing that pays
+    personas   the fill-in personalities: an onion-only potter never touches a tomato and, beside
+               its complement, the pair cooks; a parked specialist steps aside (idle_move)
 
     python zsceval/scripts/overcooked/morl/check_complex_dishes.py
     python zsceval/scripts/overcooked/morl/check_complex_dishes.py --only pricing anneal
@@ -171,6 +173,32 @@ def check_scripts():
     assert res["episode"]["ep_sparse_r"] == 0, "five-onion soups are off the menu and pay nothing"
 
 
+def check_personas():
+    import random
+
+    from zsceval.envs.overcooked_new.script_agent.script_agent import SCRIPT_AGENTS
+
+    random.seed(0)
+    np.random.seed(0)
+    m = mdp("random1_cx")
+    state = m.get_standard_start_state()
+    agents = [SCRIPT_AGENTS["menu_potter_onion"](), SCRIPT_AGENTS["menu_cook_tomato"]()]
+    for i, a in enumerate(agents):
+        a.reset(m, state, i)
+    sparse, potter_held = 0, set()
+    for _ in range(400):
+        joint = [a.step(m, state, i) for i, a in enumerate(agents)]
+        state, info = m.get_state_transition(state, joint)
+        sparse += sum(info["sparse_reward_by_agent"])
+        if state.players[0].has_object():
+            potter_held.add(state.players[0].get_object().name)
+        assert info["shaped_info_by_agent"][0]["pickup_tomato_from_T"] == 0
+    assert "tomato" not in potter_held and "onion" in potter_held, potter_held
+    assert sparse > 0, "the onion potter and the tomato cook should cook together on random1_cx"
+    # Without idle_move the same specialist parks once it has nothing to do.
+    assert SCRIPT_AGENTS["menu_potter"]().idle_move and not SCRIPT_AGENTS["order_potter"]().idle_move
+
+
 CHECKS = {
     "limits": check_limits,
     "pricing": check_pricing,
@@ -179,6 +207,7 @@ CHECKS = {
     "anneal": check_anneal,
     "team": check_team,
     "scripts": check_scripts,
+    "personas": check_personas,
 }
 
 

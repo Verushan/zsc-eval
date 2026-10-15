@@ -18,7 +18,14 @@ how a single cooking strategy is priced on a static menu). Orders already being 
 waiting in a pot are crossed off; idle pots are matched to the remaining orders
 whose recipe contains what is already in them, empty pots to the next ones.
 `jobs` restricts which of "pot" and "serve" the cook does, which is how the
-order-aware specialists are built from the same rules.
+order-aware specialists are built from the same rules. `ingredients` restricts
+which ingredients it fetches (an onion-only potter leaves the tomatoes to its
+partner), and `pot_bias` makes it a dial: each time it is empty-handed it puts
+pot work first with that probability and serving first otherwise, the
+multi-recipe counterpart of the old env's onion-vs-soup Noisy_Agent.
+`idle_move` makes a cook with nothing to do take a random step instead of
+standing still: a specialist parked in random1's one-tile ring blocks its
+partner for the rest of the game, so even the oracle complement scored 0.
 
 Needs `state.orders` (an MDP built with timed_orders); without a queue the
 layout's menu is used, all equally urgent.
@@ -44,8 +51,15 @@ def _missing(target, contents):
 
 
 class OrderCook(BaseScriptAgent):
-    def __init__(self, preference="urgent", jobs=("pot", "serve"), dish=None):
+    def __init__(self, preference="urgent", jobs=("pot", "serve"), dish=None, ingredients=INGREDIENTS,
+                 pot_bias=None, idle_move=False):
         super().__init__()
+        self.idle_move = idle_move
+        assert set(ingredients) <= set(INGREDIENTS) and ingredients
+        assert pot_bias is None or 0.0 <= pot_bias <= 1.0
+        self.ingredients = tuple(ingredients)
+        self.pot_bias = pot_bias
+        self.pot_first = None
         assert preference in ("urgent", "valuable", "blind", "fixed")
         assert set(jobs) <= {"pot", "serve"} and jobs
         assert (preference == "fixed") == (dish is not None), "a fixed cook needs its dish, and only it takes one"
@@ -56,6 +70,7 @@ class OrderCook(BaseScriptAgent):
     def reset(self, mdp, state, player_idx):
         self.last_pos = state.players[player_idx].position
         self.stuck_time = 0
+        self.pot_first = None
         # "blind" ignores the queue: it works through the menu in an order fixed
         # for the episode, the way an order-unaware cook would.
         self.menu = list(state.all_orders)
@@ -150,22 +165,47 @@ class OrderCook(BaseScriptAgent):
             return self._go(mdp, state, idx, "X", ["can_put"])
 
         # Empty-handed.
-        if pot:
+        def start_cook():
             for pos, (_target, need) in targets.items():
                 if sum(need.values()) == 0:
                     return self._go(mdp, state, idx, "P", ["idle_soup"], only=pos)
-        if serve and ready:
-            return self._go(mdp, state, idx, "DX", ["dish"])
-        if pot:
+
+        def fetch():
             for _pos, (_target, need) in targets.items():
-                for ing in INGREDIENTS:
+                for ing in self.ingredients:
                     if need[ing] > 0:
                         return self._go(mdp, state, idx, "OTX", [ing])
-        if serve and cooking:
-            return self._go(mdp, state, idx, "DX", ["dish"])
+
+        def dish_for_ready():
+            if ready:
+                return self._go(mdp, state, idx, "DX", ["dish"])
+
+        def dish_for_cooking():
+            if cooking:
+                return self._go(mdp, state, idx, "DX", ["dish"])
+
+        if not pot:
+            steps = [dish_for_ready, dish_for_cooking]
+        elif not serve:
+            steps = [start_cook, fetch]
+        elif self.pot_bias is None:
+            steps = [start_cook, dish_for_ready, fetch, dish_for_cooking]
+        else:
+            if self.pot_first is None:  # once per empty-handed spell, so it does not dither
+                self.pot_first = random.random() < self.pot_bias
+            steps = ([start_cook, fetch, dish_for_ready, dish_for_cooking] if self.pot_first
+                     else [dish_for_ready, dish_for_cooking, start_cook, fetch])  # fmt: skip
+        for step in steps:
+            action = step()
+            if action is not None:
+                return action
+        if self.idle_move:
+            return random.choice(Direction.ALL_DIRECTIONS)
         return Action.STAY
 
     def step(self, mdp, state, player_idx):
+        if state.players[player_idx].has_object():
+            self.pot_first = None
         action = self._decide(mdp, state, player_idx)
         pos = state.players[player_idx].position
         if pos == self.last_pos and action in Direction.ALL_DIRECTIONS:
