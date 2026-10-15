@@ -9,7 +9,7 @@ import numpy as np
 import tqdm
 from loguru import logger
 
-from zsceval.envs.morl.objectives import ObjectiveContext, make_objective_vector
+from zsceval.envs.morl.objectives import ObjectiveContext, is_task_objective, make_objective_vector
 from zsceval.envs.morl.preferences import MirrorDescentPreferences
 from zsceval.envs.overcooked.overcooked_ai_py.mdp.actions import Action, Direction
 from zsceval.envs.overcooked.overcooked_ai_py.mdp.overcooked_mdp import (
@@ -772,10 +772,10 @@ class Overcooked(gym.Env):
         # --morl_anneal_dense: every objective that is not the task itself is
         # scaled by the annealed reward-shaping factor, so the reward converges
         # to the task the way the hand-shaped baseline's does. `task_completion`
-        # and its valued variant are the task.
+        # and its valued variant are the task (objectives.is_task_objective).
         self.morl_anneal_dense = bool(getattr(all_args, "morl_anneal_dense", False))
         self.morl_dense_mask = np.array(
-            [not n.startswith("task_completion") for n in self.morl_objective_names],
+            [not is_task_objective(n) for n in self.morl_objective_names],
             dtype=np.float64,
         )
         self.morl_base_weights = self.morl_weights.copy()

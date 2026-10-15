@@ -13,7 +13,8 @@ soups nobody ordered. `OrderCook` decides afresh every step:
 
 Targets: open orders are ranked by `preference` ("urgent" = earliest deadline,
 "valuable" = highest value, then urgency, "blind" = the menu in a fixed random
-order, ignoring the queue). Orders already being cooked or
+order, ignoring the queue, "fixed" = always the one recipe `dish`, in every pot:
+how a single cooking strategy is priced on a static menu). Orders already being cooked or
 waiting in a pot are crossed off; idle pots are matched to the remaining orders
 whose recipe contains what is already in them, empty pots to the next ones.
 `jobs` restricts which of "pot" and "serve" the cook does, which is how the
@@ -43,12 +44,14 @@ def _missing(target, contents):
 
 
 class OrderCook(BaseScriptAgent):
-    def __init__(self, preference="urgent", jobs=("pot", "serve")):
+    def __init__(self, preference="urgent", jobs=("pot", "serve"), dish=None):
         super().__init__()
-        assert preference in ("urgent", "valuable", "blind")
+        assert preference in ("urgent", "valuable", "blind", "fixed")
         assert set(jobs) <= {"pot", "serve"} and jobs
+        assert (preference == "fixed") == (dish is not None), "a fixed cook needs its dish, and only it takes one"
         self.preference = preference
         self.jobs = tuple(jobs)
+        self.dish = tuple(sorted(dish)) if dish is not None else None
 
     def reset(self, mdp, state, player_idx):
         self.last_pos = state.players[player_idx].position
@@ -57,10 +60,18 @@ class OrderCook(BaseScriptAgent):
         # for the episode, the way an order-unaware cook would.
         self.menu = list(state.all_orders)
         random.shuffle(self.menu)
+        if self.preference == "fixed":
+            from zsceval.envs.overcooked_new.src.overcooked_ai_py.mdp.overcooked_mdp import Recipe
+
+            self.dish_recipe = Recipe(self.dish)
+            self.n_pots = len(mdp.get_pot_locations())
 
     # -- planning -----------------------------------------------------------
 
     def _ranked_orders(self, state):
+        if self.preference == "fixed":
+            # One copy per pot, so that every pot is filled with it.
+            return [(self.dish_recipe, 0)] * self.n_pots
         if self.preference == "blind":
             return [(r, 0) for r in self.menu]
         if state.orders is not None:

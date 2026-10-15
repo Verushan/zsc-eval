@@ -215,7 +215,9 @@ class Recipe:
         cls._conf = conf
         cls._configured = True
         cls._computed = False
-        cls.MAX_NUM_INGREDIENTS = conf.get("max_num_ingredients", 3)
+        # The MDP passes its own `max_num_items_for_soup` under that name, so a
+        # layout's limit never reached the Recipe class and pots stayed at 3.
+        cls.MAX_NUM_INGREDIENTS = conf.get("max_num_ingredients", conf.get("max_num_items_for_soup", 3))
 
         cls._cook_time = None
         cls._delivery_reward = None
@@ -1065,6 +1067,7 @@ class OvercookedGridworld:
         start_state=None,
         old_dynamics=False,
         timed_orders=None,
+        wrong_dish_value=-10,
         **kwargs,
     ):
         """
@@ -1077,7 +1080,9 @@ class OvercookedGridworld:
         max_num_items_for_soup: Maximum number of ingredients that can be placed in a soup
         order_bonus: Multiplicative factor for serving a bonus recipe
         start_state: Default start state returned by get_standard_start_state
+        wrong_dish_value: what delivering a soup that is not on the menu pays (upstream: -10)
         """
+        self._recipe_kwargs = kwargs
         self._configure_recipes(start_all_orders, max_num_items_for_soup, **kwargs)
         self.start_all_orders = [r.to_dict() for r in Recipe.ALL_RECIPES] if not start_all_orders else start_all_orders
         if old_dynamics:
@@ -1097,6 +1102,7 @@ class OvercookedGridworld:
         self.order_bonus = order_bonus
         self.start_state = start_state
         self.max_num_items_for_soup = max_num_items_for_soup
+        self.wrong_dish_value = wrong_dish_value
         self._opt_recipe_discount_cache = {}
         self._opt_recipe_cache = {}
         self._prev_potential_params = {}
@@ -1203,7 +1209,25 @@ class OvercookedGridworld:
             layout_name=self.layout_name,
             start_all_orders=self.start_all_orders,
             timed_orders=copy.deepcopy(self.timed_orders),
+            **self._extra_params(),
         )
+
+    def _extra_params(self):
+        """Constructor arguments the copy and `mdp_params` used to drop. The Recipe
+        configuration is class-global, so a copy built without them reset every
+        recipe to the 3-ingredient default and its prices. Only non-defaults are
+        listed, so the params of the original layouts are unchanged."""
+        # getattr: MDPs unpickled from planner files saved before these existed.
+        extra = dict(getattr(self, "_recipe_kwargs", {}))
+        if self.max_num_items_for_soup != 3:
+            extra["max_num_items_for_soup"] = self.max_num_items_for_soup
+        if self.order_bonus != 2:
+            extra["order_bonus"] = self.order_bonus
+        if self.old_dynamics:
+            extra["old_dynamics"] = True
+        if getattr(self, "wrong_dish_value", -10) != -10:
+            extra["wrong_dish_value"] = self.wrong_dish_value
+        return copy.deepcopy(extra)
 
     @property
     def mdp_params(self):
@@ -1217,6 +1241,7 @@ class OvercookedGridworld:
         }
         if self.timed_orders is not None:
             params["timed_orders"] = copy.deepcopy(self.timed_orders)
+        params.update(self._extra_params())
         return params
 
     ##############
@@ -1654,12 +1679,12 @@ class OvercookedGridworld:
                         delivery_rew = self.deliver_soup(new_state, player, obj)
                     sparse_reward[player_idx] += delivery_rew
                     shaped_info[player_idx]["delivery"] += 1
-                    _map = {
-                        2: "two",
-                        3: "three",
-                    }  # MARK: order with different sizes may exist
+                    # Soups of 4-5 ingredients (the complex-dish `_cx` layouts) count as
+                    # size three: SHAPED_INFOS is the HSP weight vector's index, so it
+                    # does not grow. Read "three" as "three or more".
                     if len(obj.ingredients) > 1:
-                        shaped_info[player_idx][f"deliver_size_{_map[len(obj.ingredients)]}_order"] += 1
+                        size = "two" if len(obj.ingredients) == 2 else "three"
+                        shaped_info[player_idx][f"deliver_size_{size}_order"] += 1
                     if delivery_rew <= 0:
                         shaped_info[player_idx]["deliver_useless_order"] += 1
 
@@ -1686,8 +1711,7 @@ class OvercookedGridworld:
         """
         if not discounted:
             if not recipe in state.all_orders:
-                # TODO: penalty
-                return -10
+                return getattr(self, "wrong_dish_value", -10)
 
             if not recipe in state.bonus_orders:
                 return recipe.value

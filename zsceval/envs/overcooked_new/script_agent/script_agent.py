@@ -258,18 +258,30 @@ class _Idle(BaseScriptAgent):
         return Action.STAY
 
 
+def _parse_dish(name):
+    """`dish_OOTT` -> ("onion", "onion", "tomato", "tomato"): an OrderCook that cooks only that recipe."""
+    if not name.startswith("dish_") or not name[5:] or set(name[5:]) - {"O", "T"}:
+        return None
+    return tuple("onion" if c == "O" else "tomato" for c in name[5:])
+
+
 class _ScriptRegistry(dict):
-    """SCRIPT_AGENTS, plus order-family members (order_family.py) built from their names on first lookup."""
+    """SCRIPT_AGENTS, plus order-family members (order_family.py) and fixed-dish
+    cooks (`dish_OOTT`), built from their names on first lookup."""
 
     def __missing__(self, name):
-        from zsceval.envs.overcooked_new.script_agent import order_family
+        dish = _parse_dish(name)
+        if dish is not None:
+            factory = functools.partial(OrderCook, preference="fixed", dish=dish)
+        else:
+            from zsceval.envs.overcooked_new.script_agent import order_family
 
-        factory = order_family.make(name)
+            factory = order_family.make(name)
         self[name] = factory
         return factory
 
     def __contains__(self, name):
-        if dict.__contains__(self, name):
+        if dict.__contains__(self, name) or _parse_dish(name) is not None:
             return True
         from zsceval.envs.overcooked_new.script_agent import order_family
 

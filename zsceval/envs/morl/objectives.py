@@ -704,6 +704,34 @@ def OrderExpiry(scale: float = -1.0) -> OrderObjective:
     return OrderObjective("order_expiry", "Orders lost to their deadline (team, negative).", "expired", scale, team=True)
 
 
+def is_task_objective(name: str) -> bool:
+    """The objectives that *are* the task: what --morl_anneal_dense leaves at
+    full weight and --morl_team_task credits to the team. Everything else is a
+    dense sub-task signal."""
+    return name.startswith("task_completion") or name == "dish_value"
+
+
+class DishValue(Objective):
+    """Recipe ambition, priced: the value of the dishes delivered, /20.
+
+    The complex-dish `_cx` layouts pay 10-60 per dish, and the best one takes
+    five ingredients of two kinds. `task_completion` counts dishes whatever they
+    are worth and `recipe_value` lumps every soup of three or more ingredients
+    together, so neither separates a 20-point onion soup from a 60-point mixed
+    one. This reads the sparse reward instead; negative rewards (a wrong dish
+    on a layout that charges for it, a timed-order penalty) are not value.
+    """
+
+    name = "dish_value"
+    description = "Value of the dishes delivered, in units of 20."
+
+    def __init__(self, scale: float = 1.0 / 20):
+        self.scale = float(scale)
+
+    def __call__(self, context: ObjectiveContext) -> np.ndarray:
+        return np.maximum(np.asarray(context.sparse_r_by_agent, dtype=np.float64), 0.0) * self.scale
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -720,6 +748,7 @@ OBJECTIVE_REGISTRY: Dict[str, Callable[[], Objective]] = {
     "task_completion_valued": lambda: TaskCompletion(scale=20.0),
     "recipe_quality": RecipeQuality,
     "recipe_value": RecipeValue,
+    "dish_value": DishValue,
     "fill_pot": FillPot,
     "fetch_dish": FetchDish,
     "plate_soup": PlateSoup,
@@ -802,6 +831,16 @@ OBJECTIVE_SETS: Dict[str, List[str]] = {
         "coordination_anchored",
         "recipe_quality",
         "recipe_value",
+    ],
+    # Complex-dish `_cx` layouts: speed (dishes served) against value (what they
+    # were worth) and recipe judgement, plus the dense prep signals.
+    "dishes": [
+        "task_completion",
+        "dish_value",
+        "ingredient_prep",
+        "plating",
+        "coordination_anchored",
+        "recipe_quality",
     ],
     # The fill-in suite's task view: deliveries plus the three jobs that lead to
     # one. Old (onion-only) layouts; see FillPot above.

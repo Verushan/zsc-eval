@@ -48,7 +48,7 @@ objectives=${OBJECTIVES:-default}
 # have been handed a fourth weight for a component that does not exist.
 case "${objectives}" in
     anchored_live3) uniform_w="0.3333,0.3333,0.3333" ;;
-    recipe)         uniform_w="0.1667,0.1667,0.1667,0.1667,0.1667,0.1667" ;;
+    recipe|dishes)  uniform_w="0.1667,0.1667,0.1667,0.1667,0.1667,0.1667" ;;
     *)              uniform_w="0.25,0.25,0.25,0.25" ;;
 esac
 uniform_w=${MORL_WEIGHTS:-$uniform_w}
@@ -57,6 +57,9 @@ uniform_w=${MORL_WEIGHTS:-$uniform_w}
 case "${objectives}" in
     anchored_live3) ann_w="20,3,3" ;;
     recipe)         ann_w="20,3,3,3,3,3" ;;
+    # dish_value at 20 is the sparse reward itself (it is value / 20); counting
+    # dishes on top would pay twice for a cheap one.
+    dishes)         ann_w="0,20,3,3,3,3" ;;
     *)              ann_w="20,3,3,3" ;;
 esac
 ANN_WEIGHTS=${ANN_WEIGHTS:-$ann_w}

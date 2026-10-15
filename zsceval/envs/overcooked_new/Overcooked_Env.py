@@ -10,7 +10,7 @@ import numpy as np
 import tqdm
 from loguru import logger
 
-from zsceval.envs.morl.objectives import ObjectiveContext, make_objective_vector
+from zsceval.envs.morl.objectives import ObjectiveContext, is_task_objective, make_objective_vector
 from zsceval.envs.morl.preferences import MirrorDescentPreferences
 from zsceval.envs.overcooked_new.script_agent.script_agent import SCRIPT_AGENTS
 from zsceval.utils.train_util import setup_seed
@@ -1048,12 +1048,25 @@ class Overcooked(gym.Env):
         else:
             self.morl_preferences = None
 
+        # --morl_anneal_dense / --morl_team_task, ported from the old env so the
+        # multi-recipe layouts can run the annealed MORL arm: the non-task
+        # objectives are scaled by the annealed reward-shaping factor, and the
+        # task columns are credited to the team as the baseline's sparse reward is.
+        self.morl_anneal_dense = bool(getattr(all_args, "morl_anneal_dense", False))
+        self.morl_team_task = bool(getattr(all_args, "morl_team_task", False))
+        self.morl_dense_mask = np.array(
+            [not is_task_objective(n) for n in self.morl_objective_names], dtype=np.float64
+        )
+        self.morl_task_mask = 1.0 - self.morl_dense_mask
+
         self.cumulative_morl_reward = np.zeros(self.num_agents)
         morl_dict = {
             "objectives": self.morl_objective_names,
             "weights": self.morl_weights.tolist(),
             "scale": self.morl_reward_scale,
             "adaptive": self.morl_adaptive_weights,
+            "anneal_dense": self.morl_anneal_dense,
+            "team_task": self.morl_team_task,
         }
         logger.debug("morl reward:\n" + pprint.pformat(morl_dict, compact=True, width=120))
 
@@ -1070,7 +1083,16 @@ class Overcooked(gym.Env):
             so no swap is needed here -- unlike HSP, whose w0/w1 belong to the
             ego agent rather than to the player slot.
         """
-        return self.morl_reward_scale * np.asarray(vec_r_by_agent) @ self.morl_weights
+        vec = np.asarray(vec_r_by_agent, dtype=np.float64)
+        if self.morl_team_task:
+            team = vec.sum(axis=0, keepdims=True) * self.morl_task_mask
+            vec = vec * self.morl_dense_mask + team
+        w = np.asarray(self.morl_weights, dtype=np.float64)
+        if self.morl_anneal_dense:
+            init = self._initial_reward_shaping_factor
+            anneal = float(self.reward_shaping_factor / init) if init > 0 else 1.0
+            w = w * (1.0 - self.morl_dense_mask * (1.0 - anneal))
+        return self.morl_reward_scale * vec @ w
 
     def _update_morl_weights(self):
         """Advance the preference weights by one mirror descent step.
