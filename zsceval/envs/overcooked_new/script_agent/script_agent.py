@@ -242,6 +242,8 @@ for onion in range(10 + 1):
 # specialists do only their half of that job.
 from zsceval.envs.overcooked_new.script_agent.order_script import OrderCook  # noqa: E402
 
+_MENU = dict(preference="valuable", idle_move=True, break_loops=True)
+
 SCRIPT_AGENTS.update(
     {
         "order_cook": functools.partial(OrderCook, preference="urgent"),
@@ -251,29 +253,22 @@ SCRIPT_AGENTS.update(
         "idle": lambda: _Idle(),
         # The fill-in suite's personalities for static multi-recipe menus (the
         # `_cx` kitchens): "urgent" without a queue works through the menu in
-        # file order, which starts with the cheapest dishes, so these rank by value.
-        # idle_move: a specialist with nothing to do steps about rather than
-        # parking in a corridor (order_script.OrderCook).
-        "menu_cook": functools.partial(OrderCook, preference="valuable", idle_move=True),
-        "menu_potter": functools.partial(OrderCook, preference="valuable", idle_move=True, jobs=("pot",)),
-        "menu_server": functools.partial(OrderCook, preference="valuable", idle_move=True, jobs=("serve",)),
-        "menu_potter_onion": functools.partial(
-            OrderCook, preference="valuable", idle_move=True, jobs=("pot",), ingredients=("onion",)
-        ),
-        "menu_potter_tomato": functools.partial(
-            OrderCook, preference="valuable", idle_move=True, jobs=("pot",), ingredients=("tomato",)
-        ),
+        # file order, which starts with the cheapest dishes, so these rank by
+        # value. idle_move / break_loops: a specialist with nothing to do steps
+        # about rather than parking in a corridor, and two cooks mirroring each
+        # other break the loop (order_script.OrderCook).
+        "menu_cook": functools.partial(OrderCook, **_MENU),
+        "menu_potter": functools.partial(OrderCook, **_MENU, jobs=("pot",)),
+        "menu_server": functools.partial(OrderCook, **_MENU, jobs=("serve",)),
+        "menu_potter_onion": functools.partial(OrderCook, **_MENU, jobs=("pot",), ingredients=("onion",)),
+        "menu_potter_tomato": functools.partial(OrderCook, **_MENU, jobs=("pot",), ingredients=("tomato",)),
         # The fill-in oracle's complements of the ingredient specialists.
-        "menu_cook_onion": functools.partial(
-            OrderCook, preference="valuable", idle_move=True, ingredients=("onion",)
-        ),
-        "menu_cook_tomato": functools.partial(
-            OrderCook, preference="valuable", idle_move=True, ingredients=("tomato",)
-        ),
-        **{
-            f"menu_dial{k}": functools.partial(OrderCook, preference="valuable", idle_move=True, pot_bias=k / 10)
-            for k in range(11)
-        },
+        "menu_cook_onion": functools.partial(OrderCook, **_MENU, ingredients=("onion",)),
+        "menu_cook_tomato": functools.partial(OrderCook, **_MENU, ingredients=("tomato",)),
+        **{f"menu_dial{k}": functools.partial(OrderCook, **_MENU, pot_bias=k / 10) for k in range(11)},
+        # Dishes it can finish alone only (split kitchens): the oracle's complements.
+        "menu_cook_solo": functools.partial(OrderCook, **_MENU, solo=True),
+        "menu_potter_solo": functools.partial(OrderCook, **_MENU, solo=True, jobs=("pot",)),
     }
 )
 
@@ -297,7 +292,7 @@ class _ScriptRegistry(dict):
     def __missing__(self, name):
         dish = _parse_dish(name)
         if dish is not None:
-            factory = functools.partial(OrderCook, preference="fixed", dish=dish)
+            factory = functools.partial(OrderCook, preference="fixed", dish=dish, break_loops=True)
         else:
             from zsceval.envs.overcooked_new.script_agent import order_family
 

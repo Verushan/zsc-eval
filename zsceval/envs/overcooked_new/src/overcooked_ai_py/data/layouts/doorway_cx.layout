@@ -1,0 +1,20 @@
+{
+    "grid":  """XXXXXXXXX
+                O 1X 2P X
+                T       S
+                D  X  P X
+                XXXXXXXXX""",
+    "max_num_items_for_soup": 5,
+    "wrong_dish_value": 0,
+    "start_all_orders" : [
+        { "ingredients" : ["onion", "onion", "onion"]},
+        { "ingredients" : ["onion", "tomato"]},
+        { "ingredients" : ["onion", "onion", "tomato", "tomato"]},
+        { "ingredients" : ["onion", "onion", "onion", "tomato", "tomato"]},
+        { "ingredients" : ["onion", "onion", "tomato", "tomato", "tomato"]},
+    ],
+    "recipe_values" : [20, 10, 40, 60, 60],
+    "recipe_times" : [20, 10, 25, 30, 30],
+    "start_bonus_orders": [],
+    "rew_shaping_params": None
+}

@@ -26,6 +26,13 @@ multi-recipe counterpart of the old env's onion-vs-soup Noisy_Agent.
 `idle_move` makes a cook with nothing to do take a random step instead of
 standing still: a specialist parked in random1's one-tile ring blocks its
 partner for the rest of the game, so even the oracle complement scored 0.
+`solo` limits the menu to dishes this cook can finish alone, i.e. whose
+ingredients it can reach: in a split pantry, a cook beside a partner who never
+pots should make onion soup on its own side rather than wait for tomatoes that
+will never come. It is the oracle's complement there, not the blind generalist.
+`break_loops` takes a random step when the cook has bounced between two tiles
+for 6 steps: two cooks can mirror each other indefinitely in an open kitchen,
+and the stuck counter never fires because their positions keep changing.
 
 Needs `state.orders` (an MDP built with timed_orders); without a queue the
 layout's menu is used, all equally urgent.
@@ -50,11 +57,36 @@ def _missing(target, contents):
     return None if extra else need
 
 
+def _reachable_ingredients(mdp, start):
+    """Ingredients whose dispensers a cook can walk to from `start`, ignoring the partner."""
+    floor = set(mdp.get_valid_player_positions())
+    seen, frontier = {start}, [start]
+    while frontier:
+        x, y = frontier.pop()
+        for d in Direction.ALL_DIRECTIONS:
+            nxt = (x + d[0], y + d[1])
+            if nxt in floor and nxt not in seen:
+                seen.add(nxt)
+                frontier.append(nxt)
+    out = set()
+    for pos in seen:
+        for d in Direction.ALL_DIRECTIONS:
+            kind = mdp.get_terrain_type_at_pos((pos[0] + d[0], pos[1] + d[1]))
+            if kind == "O":
+                out.add("onion")
+            elif kind == "T":
+                out.add("tomato")
+    return out
+
+
 class OrderCook(BaseScriptAgent):
     def __init__(self, preference="urgent", jobs=("pot", "serve"), dish=None, ingredients=INGREDIENTS,
-                 pot_bias=None, idle_move=False):
+                 pot_bias=None, idle_move=False, break_loops=False, solo=False):
         super().__init__()
+        self.solo = solo
         self.idle_move = idle_move
+        self.break_loops = break_loops
+        self.recent = []
         assert set(ingredients) <= set(INGREDIENTS) and ingredients
         assert pot_bias is None or 0.0 <= pot_bias <= 1.0
         self.ingredients = tuple(ingredients)
@@ -71,10 +103,12 @@ class OrderCook(BaseScriptAgent):
         self.last_pos = state.players[player_idx].position
         self.stuck_time = 0
         self.pot_first = None
+        self.recent = []
         # "blind" ignores the queue: it works through the menu in an order fixed
         # for the episode, the way an order-unaware cook would.
         self.menu = list(state.all_orders)
         random.shuffle(self.menu)
+        self.reachable = _reachable_ingredients(mdp, state.players[player_idx].position)
         if self.preference == "fixed":
             from zsceval.envs.overcooked_new.src.overcooked_ai_py.mdp.overcooked_mdp import Recipe
 
@@ -93,6 +127,8 @@ class OrderCook(BaseScriptAgent):
             orders = [(o.recipe, o.deadline) for o in state.orders]
         else:
             orders = [(r, 0) for r in state.all_orders]
+        if self.solo:
+            orders = [o for o in orders if set(o[0].ingredients) <= self.reachable]
         if self.preference == "valuable":
             return sorted(orders, key=lambda o: (-o[0].value, o[1]))
         return sorted(orders, key=lambda o: o[1])
@@ -208,6 +244,12 @@ class OrderCook(BaseScriptAgent):
             self.pot_first = None
         action = self._decide(mdp, state, player_idx)
         pos = state.players[player_idx].position
+        if self.break_loops:
+            self.recent = (self.recent + [pos])[-7:]
+            r = self.recent
+            if len(r) == 7 and len(set(r)) == 2 and all(r[i] != r[i + 1] for i in range(6)):
+                self.recent = []
+                return random.choice(Direction.ALL_DIRECTIONS)
         if pos == self.last_pos and action in Direction.ALL_DIRECTIONS:
             self.stuck_time += 1
             if self.stuck_time >= 3:
