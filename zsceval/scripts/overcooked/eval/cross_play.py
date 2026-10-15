@@ -97,6 +97,16 @@ def parse_args(args, parser):
     parser.add_argument(
         "--population_size", type=int, default=2, help="Logged for bookkeeping only."
     )
+    parser.add_argument(
+        "--swap_step",
+        type=int,
+        default=0,
+        help="Swap the partner mid-episode at this step (0 = no swap). Each "
+        "(ego, partner) pair continues with the next partner in "
+        "--partner_policy_names (cyclically), with a fresh hidden state: the ego "
+        "agent is not told. Records gain partner_after and "
+        "eval_ep_sparse_r_after_swap.",
+    )
     # Overcooked_Env binds `script:`-prefixed policies to a player slot once, at
     # env construction, so they cannot take part in a matrix whose pairings change
     # per chunk. They are declared here only because the env reads the attributes.
@@ -122,6 +132,12 @@ def build_pairs(all_args):
                     seen.add(pair)
                     pairs.append(pair)
     return pairs
+
+
+def swap_targets(all_args):
+    """Partner -> the partner it is swapped to: the next one in the list, cyclically."""
+    ps = list(all_args.partner_policy_names)
+    return {p: ps[(i + 1) % len(ps)] for i, p in enumerate(ps)}
 
 
 def chunk_pairs(pairs, n_threads):
@@ -219,6 +235,12 @@ def main(args):
         f"= {len(chunks) * rounds * all_args.n_eval_rollout_threads} episode rollouts"
     )
 
+    egos = set(all_args.ego_policy_names)
+    nxt = swap_targets(all_args) if all_args.swap_step > 0 else {}
+    if nxt:
+        assert len(all_args.partner_policy_names) > 1, "a swap needs at least two partners"
+        assert not (egos & set(all_args.partner_policy_names)), "swap mode needs disjoint egos and partners"
+
     records = []
     for c_i, assignment in enumerate(chunks):
         map_ea2p = {}
@@ -232,9 +254,18 @@ def main(args):
         runner.policy.set_map_ea2p(map_ea2p)
         eval_envs.reset_featurize_type(featurize_types)
 
+        swap = None
+        if nxt:
+            # The partner seat is whichever of the pair is not the ego agent.
+            to = {}
+            for e, (p0, p1) in enumerate(assignment):
+                seat = 1 if p0 in egos else 0
+                to[(e, seat)] = nxt[(p0, p1)[seat]]
+            swap = {"step": all_args.swap_step, "to": to}
+
         for r_i in range(rounds):
             info = runner.evaluate_one_episode_with_multi_policy(
-                runner.policy.policy_pool, map_ea2p
+                runner.policy.policy_pool, map_ea2p, swap=swap
             )
             for e, (p0, p1) in enumerate(assignment):
                 record = {
@@ -244,6 +275,11 @@ def main(args):
                     "round": r_i,
                     "thread": e,
                 }
+                if swap is not None:
+                    seat = 1 if p0 in egos else 0
+                    record["partner_seat"] = seat
+                    record["partner_after"] = swap["to"][(e, seat)]
+                    record["swap_step"] = all_args.swap_step
                 for k, v in info.items():
                     record[k] = float(v[e])
                 records.append(record)
@@ -271,6 +307,7 @@ def main(args):
                 "episode_length": all_args.episode_length,
                 "eval_stochastic": all_args.eval_stochastic,
                 "seed": all_args.seed,
+                "swap_step": all_args.swap_step,
                 "records": records,
             },
             f,

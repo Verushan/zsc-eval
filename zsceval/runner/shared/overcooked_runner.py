@@ -537,11 +537,16 @@ class OvercookedRunner(Runner):
                 + str(np.mean(np.sum(np.array(episode_rewards), axis=0)))
             )
 
-    def evaluate_one_episode_with_multi_policy(self, policy_pool: Dict, map_ea2p: Dict):
+    def evaluate_one_episode_with_multi_policy(self, policy_pool: Dict, map_ea2p: Dict, swap: Dict = None):
         """Evaluate one episode with different policy for each agent.
         Params:
             policy_pool (Dict): a pool of policies. Each policy should support methods 'step' that returns actions given observation while maintaining hidden states on its own, and 'reset' that resets the hidden state.
             map_ea2p (Dict): a mapping from (env_id, agent_id) to policy name
+            swap (Dict, optional): {"step": t, "to": {(env_id, agent_id): policy name}}.
+                At step t each listed seat is handed to the new policy, which
+                starts with a fresh hidden state -- a partner change the other
+                agent is not told about. Sparse reward from step t on is also
+                reported separately (eval_ep_sparse_r_after_swap).
         """
         # warnings.warn("Evaluation with multi policy is not compatible with async done.")
         [
@@ -567,7 +572,14 @@ class OvercookedRunner(Runner):
 
         extract_info_keys = []  # ['stuck', 'can_begin_cook']
         infos = None
-        for _ in range(self.all_args.episode_length):
+        after_swap = np.zeros(self.n_eval_rollout_threads)
+        for step_i in range(self.all_args.episode_length):
+            if swap is not None and step_i == swap["step"]:
+                for (e, a), new in swap["to"].items():
+                    old = map_ea2p[(e, a)]
+                    if new != old:
+                        policy_pool[old].release_control_agent(e, a)
+                        policy_pool[new].register_control_agent(e, a)
             eval_actions = np.full(
                 (self.n_eval_rollout_threads, self.num_agents, 1), fill_value=0
             ).tolist()
@@ -607,6 +619,9 @@ class OvercookedRunner(Runner):
             ) = self.eval_envs.step(eval_actions)
 
             infos = eval_infos
+            if swap is not None and step_i >= swap["step"]:
+                for e in range(self.n_eval_rollout_threads):
+                    after_swap[e] += sum(eval_infos[e]["sparse_r_by_agent"])
 
         if self.all_args.overcooked_version == "old":
             from zsceval.envs.overcooked.overcooked_ai_py.mdp.overcooked_mdp import (
@@ -643,6 +658,8 @@ class OvercookedRunner(Runner):
             # cross-play against a MORL agent can report the same per-objective
             # breakdown that training logs, rather than a counter-based proxy.
             self._collect_objective_infos(eval_env_infos, eval_info, prefix="eval_")
+        if swap is not None:
+            eval_env_infos["eval_ep_sparse_r_after_swap"] = list(after_swap)
 
         return eval_env_infos
 

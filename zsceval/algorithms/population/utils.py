@@ -50,6 +50,13 @@ class EvalPolicy:
             self._map_a2id[(e, a)] = len(self._control_agents)
             self._rnn_states[(e, a)] = self.default_hidden_state
 
+    def release_control_agent(self, e, a):
+        """Stop controlling seat (e, a) -- used to swap a partner mid-episode."""
+        if (e, a) in self._control_agents:
+            self._control_agents.remove((e, a))
+            self._map_a2id = {ea: i + 1 for i, ea in enumerate(self._control_agents)}
+            self._rnn_states.pop((e, a), None)
+
     def fit_obs(self, obs):
         """Trim trailing features this policy's network was not built for.
 
