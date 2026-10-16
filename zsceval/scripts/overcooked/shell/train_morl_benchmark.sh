@@ -192,7 +192,9 @@ DIV_WEIGHTS=(
 # .env is sourced first, so a generic name there would silently win.
 num_env_steps=${MORL_BENCH_STEPS:-2e6}
 reward_shaping_horizon=${num_env_steps}
-entropy_coefs="0.2 0.05 0.01"
+# ENT_FINAL raises the last entropy coefficient (the stability diagnostic on the
+# _cx kitchens, where 4 of 7 learning runs collapsed in the final 0.01 phase).
+entropy_coefs="0.2 0.05 ${ENT_FINAL:-0.01}"
 entropy_coef_horizons="0 $(awk -v n="${num_env_steps}" 'BEGIN{printf "%d", n / 2}') ${num_env_steps}"
 
 episode_length=400
