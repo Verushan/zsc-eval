@@ -28,6 +28,11 @@ is what `--population_size 1 --adaptive_agent_name br_agent` expects.
 
     python prep/gen_br_ymls.py random0
     python prep/gen_br_ymls.py random3 --tag final --partners 12 13
+
+Self-play held-out partners (the complex-dish kitchens have no HSP set) are keyed
+`sp{seed}_{tag}`, the cross-play pool's `heldout_sp{seed}_{tag}` without the prefix:
+
+    python prep/gen_br_ymls.py pantry_cx --sp_exp bench_sp-cx-lr --sp_seeds 7 8 9 10 11 12 --sp_tags mid final
 """
 
 import argparse
@@ -60,6 +65,35 @@ def discover(layout, hsp_exp, tag):
     return sorted(found)
 
 
+def write_pool(layout, out_dir, key, name, actor):
+    config = f"{layout}/policy_config/mlp_policy_config.pkl"
+    pool = {
+        "br_agent": {"policy_config_path": config, "featurize_type": "ppo", "train": True},
+        name: {"policy_config_path": config, "featurize_type": "ppo", "train": False, "model_path": {"actor": actor}},
+    }
+    with open(osp.join(out_dir, f"train_br_{key}.yml"), "w") as f:
+        yaml.safe_dump(pool, f, sort_keys=False)
+
+
+def write_sp(args):
+    """One BR yml per self-play held-out checkpoint, keyed sp{seed}_{tag}."""
+    assert args.sp_seeds, "--sp_exp needs --sp_seeds"
+    out_dir = osp.join(POLICY_POOL_DIR, args.layout, args.out_subdir)
+    os.makedirs(out_dir, exist_ok=True)
+    written = []
+    for seed in args.sp_seeds:
+        for tag in args.sp_tags:
+            actor = f"{args.layout}/fcp/s1/{args.sp_exp}/sp{seed}_{tag}_actor.pt"
+            if not osp.isfile(osp.join(POLICY_POOL_DIR, actor)):
+                logger.warning(f"skipping sp{seed}_{tag}: missing {actor}")
+                continue
+            key = f"sp{seed}_{tag}"
+            write_pool(args.layout, out_dir, key, key, actor)
+            written.append(key)
+    logger.success(f"wrote {len(written)} br ymls to {out_dir}: {written}")
+    print(" ".join(written))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("layout")
@@ -73,9 +107,14 @@ def main():
         help="Partner indices. Default: every one with a checkpoint.",
     )
     ap.add_argument("--out_subdir", default="br")
+    ap.add_argument("--sp_exp", default=None, help="Stage-1 exp under {layout}/fcp/s1 whose seeds are the held-out set")
+    ap.add_argument("--sp_seeds", nargs="+", type=int, default=[])
+    ap.add_argument("--sp_tags", nargs="+", default=["mid", "final"])
     args = ap.parse_args()
 
     assert POLICY_POOL_DIR, "POLICY_POOL is unset; source .env first"
+    if args.sp_exp:
+        return write_sp(args)
     partners = args.partners or discover(args.layout, args.hsp_exp, args.tag)
     if not partners:
         raise SystemExit(
@@ -85,7 +124,6 @@ def main():
 
     out_dir = osp.join(POLICY_POOL_DIR, args.layout, args.out_subdir)
     os.makedirs(out_dir, exist_ok=True)
-    config = f"{args.layout}/policy_config/mlp_policy_config.pkl"
     written = []
 
     for i in partners:
@@ -93,23 +131,7 @@ def main():
         if not osp.isfile(osp.join(POLICY_POOL_DIR, actor)):
             logger.warning(f"skipping partner {i}: missing {actor}")
             continue
-        name = f"hsp{i}_{args.tag}_w0"
-        pool = {
-            "br_agent": {
-                "policy_config_path": config,
-                "featurize_type": "ppo",
-                "train": True,
-            },
-            name: {
-                "policy_config_path": config,
-                "featurize_type": "ppo",
-                "train": False,
-                "model_path": {"actor": actor},
-            },
-        }
-        path = osp.join(out_dir, f"train_br_{i}.yml")
-        with open(path, "w") as f:
-            yaml.safe_dump(pool, f, sort_keys=False)
+        write_pool(args.layout, out_dir, i, f"hsp{i}_{args.tag}_w0", actor)
         written.append(i)
 
     logger.success(

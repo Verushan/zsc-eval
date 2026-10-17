@@ -65,6 +65,10 @@ ARM_POPULATIONS = {
     "bench_sp-rec": ["bench_sp-rec"],
     "bench_morl-rec": ["bench_morl-rec"],
     "bench_morl_ad-rec": ["bench_morl_ad-rec"],
+    # Complex-dish kitchens (Phase 4), at the half learning rate the 16 Oct
+    # stability diagnostic chose; seeds 1-6 are the population, 7-12 held out.
+    "bench_sp-cx-lr": ["bench_sp-cx-lr"],
+    "bench_morl_ann-cx-lr": ["bench_morl_ann-cx-lr"],
 }
 
 HEADER = """\

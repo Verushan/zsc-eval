@@ -11,6 +11,7 @@ clutter script are deliberately left out: Step 8 tests on them.
 
     python prep/gen_script_population_yml.py unident_s
     python prep/gen_script_population_yml.py unident_s --partners potter server --name pilot
+    python prep/gen_script_population_yml.py pantry_cx          # multi-recipe: menu_* cooks, 7 partners
 """
 
 import argparse
@@ -31,6 +32,25 @@ SCRIPTS = {
     "clutter": "put_onion_everywhere",
 }
 TRAIN_PARTNERS = ["potter", "server", "idle", "dial2", "dial8"]
+
+# The same personalities for multi-recipe layouts (overcooked_new), played by the
+# dish-aware menu_* cooks: an onion-only potter would fill a `_cx` pot with an
+# off-menu five-onion soup. The two ingredient specialists are the new axis
+# those kitchens add, so they train alongside the original five; dial 5, the
+# generalist and the clutterer stay held out for the fill-in suite, as before.
+NEW_SCRIPTS = {
+    "potter": "menu_potter",
+    "server": "menu_server",
+    "idle": "idle",
+    "dial2": "menu_dial2",
+    "dial5": "menu_dial5",
+    "dial8": "menu_dial8",
+    "generalist": "menu_cook",
+    "clutter": "put_onion_everywhere",
+    "onion_potter": "menu_potter_onion",
+    "tomato_potter": "menu_potter_tomato",
+}
+NEW_TRAIN_PARTNERS = TRAIN_PARTNERS + ["onion_potter", "tomato_potter"]
 
 
 def included_partners(path, agent_name):
@@ -59,7 +79,13 @@ def included_partners(path, agent_name):
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("layout")
-    ap.add_argument("--partners", nargs="+", default=TRAIN_PARTNERS, choices=sorted(SCRIPTS) + ["none"])
+    ap.add_argument(
+        "--partners",
+        nargs="+",
+        default=None,
+        choices=sorted(set(SCRIPTS) | set(NEW_SCRIPTS)) + ["none"],
+        help="Default: the layout's training set (TRAIN_PARTNERS, or NEW_TRAIN_PARTNERS on a multi-recipe layout)",
+    )
     ap.add_argument("--name", default="scripted", help="Writes fcp/s2/train-{name}.yml")
     ap.add_argument("--agent_name", default="fcp_adaptive")
     ap.add_argument(
@@ -103,6 +129,12 @@ def main():
     args = ap.parse_args()
 
     assert POLICY_POOL, "POLICY_POOL is unset"
+    from zsceval.overcooked_config import OLD_LAYOUTS
+
+    scripts, default = (SCRIPTS, TRAIN_PARTNERS) if args.layout in OLD_LAYOUTS else (NEW_SCRIPTS, NEW_TRAIN_PARTNERS)
+    args.partners = args.partners or default
+    unknown = [p for p in args.partners if p != "none" and p not in scripts]
+    assert not unknown, f"no {unknown} script for {args.layout}'s env version"
     cfg = f"{args.layout}/policy_config"
     lines = [
         f"{args.agent_name}:",
@@ -113,7 +145,7 @@ def main():
     if args.include:
         lines += included_partners(osp.join(POLICY_POOL, args.include), args.agent_name)
     partners = [p for p in args.partners if p != "none"]
-    keys = {p: SCRIPTS[p] for p in partners}
+    keys = {p: scripts[p] for p in partners}
     if args.family:
         from zsceval.envs.overcooked.script_agent import family
 
