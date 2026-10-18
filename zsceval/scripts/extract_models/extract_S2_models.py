@@ -238,6 +238,11 @@ if __name__ == "__main__":
         "random3_mx",
         "unident_s_mx",
         "unident_s_m",
+        "unident_s_cx",
+        "random1_cx",
+        "pantry_cx",
+        "doorway_cx",
+        "bigkitchen_cx",
         "academy_3_vs_1_with_keeper",
         "all",
     ]

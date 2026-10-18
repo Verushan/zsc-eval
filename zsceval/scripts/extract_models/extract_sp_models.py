@@ -181,6 +181,13 @@ if __name__ == "__main__":
         "random1_mx",
         "random3_mx",
         "unident_s_mx",
+        # Complex-dish kitchens (pots of 5, priced mixed dishes) and the
+        # handmade layouts built on the same menu.
+        "unident_s_cx",
+        "random1_cx",
+        "pantry_cx",
+        "doorway_cx",
+        "bigkitchen_cx",
         "academy_3_vs_1_with_keeper",
         "all",
     ], layout
