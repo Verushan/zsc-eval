@@ -320,12 +320,27 @@ class SubprocVecEnv(ShareVecEnv):
             remote.send(("reset_featurize_type", featurize_type))
 
 
+def _pin_worker(worker_id: int):
+    """Pin an env worker to one of the CPUs this job may use.
+
+    Upstream pinned worker i to CPU i, which fails as soon as there are more
+    workers than CPUs the job can see: a stage-2 run evaluates 2 envs per
+    population entry, so 7 specialists make 14 workers, and the cluster's 6-core
+    `batch` nodes expose 12 CPUs ("CPU number 12 is not eligible"). Workers
+    beyond the allowed set wrap around it; whenever worker i's CPU was allowed
+    and the set starts at 0, the pin is the same as before.
+    """
+    proc = psutil.Process()
+    allowed = sorted(proc.cpu_affinity())
+    proc.cpu_affinity([allowed[worker_id % len(allowed)]])
+
+
 # Add s_ob and available_actions compared to worker
 def shareworker(remote, parent_remote, env_fn_wrapper, worker_id: int = None):
     parent_remote.close()
     env = env_fn_wrapper.x()
     if worker_id is not None:
-        psutil.Process().cpu_affinity([worker_id])
+        _pin_worker(worker_id)
     while True:
         cmd, data = remote.recv()
         if cmd == "step":
@@ -478,7 +493,7 @@ def dummyvecenvworker(remote, parent_remote, env_fns_wrapper: CloudpickleWrapper
     share_dummy_vecenv = ShareDummyVecEnv(env_fns)
     # logger.debug("dummyvecenvworker start")
     if worker_id is not None:
-        psutil.Process().cpu_affinity([worker_id])
+        _pin_worker(worker_id)
     while True:
         cmd, data = remote.recv()
         if cmd == "step":
@@ -914,7 +929,7 @@ def chooseworker_aff(remote, parent_remote, env_fn_wrapper, worker_id: int = Non
     parent_remote.close()
     env = env_fn_wrapper.x()
     if worker_id is not None:
-        psutil.Process().cpu_affinity([worker_id])
+        _pin_worker(worker_id)
     while True:
         cmd, data = remote.recv()
         if cmd == "step":
