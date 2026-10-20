@@ -72,10 +72,15 @@ fi
 # exploration phase and every arm is measured mid-exploration. Scale the
 # schedule to the budget instead.
 entropy_coefs="0.2 0.05 0.01"
-entropy_mid=$(awk -v s="${num_env_steps}" 'BEGIN{printf "%.0f", s/2}')
-entropy_end=$(awk -v s="${num_env_steps}" 'BEGIN{printf "%.0f", s}')
+# S2_SCHED_STEPS fixes the entropy and shaping schedules at that pace instead of
+# stretching them over the budget: on the complex-dish kitchens a 5e6 run with
+# stretched schedules learned slower and collapsed after ~2.5M steps, while 2e6
+# runs did not. Past the horizon the last entropy value holds and shaping is 0.
+sched_steps=${S2_SCHED_STEPS:-${num_env_steps}}
+entropy_mid=$(awk -v s="${sched_steps}" 'BEGIN{printf "%.0f", s/2}')
+entropy_end=$(awk -v s="${sched_steps}" 'BEGIN{printf "%.0f", s}')
 entropy_coef_horizons="0 ${entropy_mid} ${entropy_end}"
-reward_shaping_horizon="${num_env_steps}"
+reward_shaping_horizon="${sched_steps}"
 
 # Eval envs are batched two per worker process by train_adaptive.py, so this
 # must be even; 2x the population gives every partner two threads per pass.
