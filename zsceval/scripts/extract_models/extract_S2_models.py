@@ -159,7 +159,15 @@ def extract_pop_S2_models(
             # of freedom with nothing to justify it, and the honest alternative
             # is not a better metric: selecting on held-out ZSC would be
             # choosing the model on the evaluation set.
-            version = actor_versions[-1] if checkpoint == "final" else auto_version
+            # `best`: the checkpoint nearest the peak of the training curve,
+            # smoothed over 5 logs so one lucky evaluation does not pick it.
+            # The curve is the return against the *training* partners, so this
+            # is early stopping on training data, never selection on held-out
+            # play. It exists for the complex-dish kitchens, where stage-2
+            # runs peak around 2.5M steps and then decline.
+            smooth = np.convolve(np.nan_to_num(ep_sparse_r), np.ones(5) / 5, mode="same")
+            best_version = find_nearest(actor_versions, steps[int(np.argmax(smooth))])
+            version = {"final": actor_versions[-1], "best": best_version}.get(checkpoint, auto_version)
             note = "" if version == auto_version else f" (auto would pick {auto_version})"
             logger.info(
                 f"actor version {version} / {actor_versions[-1]} [{checkpoint}]{note}, "
@@ -208,7 +216,7 @@ if __name__ == "__main__":
 
     parser.add_argument(
         "--checkpoint",
-        choices=("auto", "final"),
+        choices=("auto", "final", "best"),
         default="auto",
         help="Which checkpoint to take from each run. 'auto' keeps the "
         "upstream rule: the checkpoint nearest the -p percentile of the "
@@ -217,7 +225,8 @@ if __name__ == "__main__":
         "because the metric 'auto' ranks on is measured against the "
         "training population and does not predict zero-shot return. In "
         "practice the two agree: 'auto' picked the final checkpoint for 15 "
-        "of 16 stage-2 runs.",
+        "of 16 stage-2 runs. 'best' takes the checkpoint nearest the peak of the "
+        "smoothed training curve (early stopping on training-partner return).",
     )
 
     args = parser.parse_args()

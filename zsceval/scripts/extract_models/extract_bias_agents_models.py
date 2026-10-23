@@ -216,6 +216,11 @@ if __name__ == "__main__":
         "unident_s_mx",
         "academy_3_vs_1_with_keeper",
         "all",
+        "unident_s_cx",
+        "random1_cx",
+        "pantry_cx",
+        "doorway_cx",
+        "bigkitchen_cx",
     ], layout
     if layout == "all":
         layout = [

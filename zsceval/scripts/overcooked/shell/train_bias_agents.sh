@@ -25,6 +25,8 @@ env="Overcooked"
 layout=$1
 seeds_arg=$2
 num_env_steps=${3:-1e7}
+# BIAS_FLAGS (environment) is appended to every run's command line, after the
+# defaults, e.g. BIAS_FLAGS="--lr 2.5e-4 --critic_lr 2.5e-4" on the _cx kitchens.
 exp=${4:-"hsp-s1"}
 
 entropy_coefs="0.2 0.05 0.001"
@@ -151,5 +153,6 @@ do
     --cnn_layers_params "32,3,1,1 64,3,1,1 32,3,1,1" --use_recurrent_policy \
     --use_proper_time_limits \
     --save_interval 25 --log_interval 10 --use_eval --eval_interval 20 --n_eval_rollout_threads ${eval_threads} \
+    ${BIAS_FLAGS:-} \
     --wandb_name $WANDB_ENTITY
 done
